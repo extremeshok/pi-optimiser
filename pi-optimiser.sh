@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ======================================================================
 # Coded by Adrian Jon Kriel :: admin@extremeshok.com
+# Project home: https://github.com/extremeshok/pi-optimiser
 # ======================================================================
 # pi-optimiser.sh :: version 7.3
 #======================================================================
