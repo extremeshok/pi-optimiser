@@ -5,7 +5,7 @@ A one-shot hardening and tuning script for **Raspberry Pi OS (Bookworm/Trixie or
 ## What You Get
 - **Hardware-aware configuration** for Pi 5/500, Pi 4/400, Pi 3, and Pi Zero 2, with preflight checks for throttling, power issues, and connectivity before any changes.
 - **Storage longevity** tweaks: aggressive apt hygiene, tmpfs mounts for `/tmp` and `/var/log`, journal rate limits, and pessimistic writeback tuning.
-- **Optional extras** you can add à la carte: Tailscale, Docker, conservative overclocking per model, NGINX proxy, kiosk display tuning, and SSH hardening with fail2ban.
+- **Optional extras** you can add à la carte: compressed ZRAM swap, Tailscale, Docker, conservative overclocking per model, NGINX proxy, kiosk display tuning, and SSH hardening with fail2ban.
 - **Auditability**: every task logs to `/var/log/pi-optimiser.log`, state lives in `/etc/pi-optimiser/state`, and backups carry timestamped `.pi-optimiser.*` suffixes.
 
 ## Quick Start
@@ -33,7 +33,8 @@ Helpful commands:
 | `--install-docker` | Enable the Docker task. |
 | `--locale <locale>` | Configure system locale, e.g. `en_GB.UTF-8`. |
 | `--proxy-backend <url|off|disable|disabled>` | Manage the NGINX proxy helper. |
-| `--zram-algo <lz4|zstd>` | Override the default ZRAM compression (defaults to `lz4`). |
+| `--install-zram` | Enable the compressed ZRAM swap task (disabled by default). |
+| `--zram-algo <lz4|zstd|disabled>` | Override the ZRAM compression or disable existing configuration. |
 | `--overclock-conservative` | Apply firmware-safe CPU/GPU clocks on Pi 5/500, 4/400, 3, and Pi Zero 2 (power-health required). |
 | `--secure-ssh` | Disable root SSH login, keep user passwords, and enable fail2ban. |
 | `--keep-screen-blanking` | Preserve default screen blanking. |
@@ -54,7 +55,7 @@ The script executes these tasks in order unless skipped. **Optional** tasks requ
 | `tmpfs_tmp` | Mount `/tmp` on tmpfs (200 MB). |
 | `var_log_tmpfs` | Move `/var/log` to tmpfs (50 MB) and recreate structure via tmpfiles. |
 | `disable_swap` | Disable `dphys-swapfile` and turn off swap. |
-| `zram` | Size compressed swap to RAM tier (defaults to `lz4`, override with `--zram-algo`). |
+| `zram` † | Configure compressed swap (requires `--install-zram`; override/disable with `--zram-algo`). |
 | `journald` | Keep the journal in RAM with 50 MB runtime limit. |
 | `sysctl` | Apply writeback, swappiness, inotify, and net backlog tweaks. |
 | `apt_conf` | Harden unattended apt jobs and trim caches. |
@@ -72,7 +73,7 @@ The script executes these tasks in order unless skipped. **Optional** tasks requ
 | `tailscale` † | Install/enable Tailscale repository and service. |
 | `docker` † | Install Docker Engine (preferred repo or distro fallback). |
 
-† Runs only when the associated flag is supplied.
+† Runs only when the associated flag is supplied (or when explicitly disabling).
 
 ### Conservative Overclock Profiles
 | Model | Profile Applied | Notes |

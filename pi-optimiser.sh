@@ -2,7 +2,7 @@
 # ======================================================================
 # Coded by Adrian Jon Kriel :: admin@extremeshok.com
 # ======================================================================
-# pi-optimiser.sh :: version 7.2
+# pi-optimiser.sh :: version 7.3
 #======================================================================
 # One-shot optimiser for Raspberry Pi OS desktops. Key capabilities:
 #   - Removes bundled bloatware and trims apt caches for a lean install
@@ -25,7 +25,7 @@ if [[ ${BASH_VERSINFO[0]} -lt 4 ]]; then
 fi
 
 SCRIPT_NAME=$(basename "$0")
-SCRIPT_VERSION="7.2"
+SCRIPT_VERSION="7.3"
 
 MARKER_DIR="/etc/pi-optimiser"
 STATE_FILE="$MARKER_DIR/state"
@@ -62,6 +62,7 @@ INSTALL_DOCKER=0
 REQUESTED_LOCALE=""
 PROXY_BACKEND=""
 ZRAM_ALGO_OVERRIDE=""
+INSTALL_ZRAM=0
 REQUEST_OC_CONSERVATIVE=0
 SECURE_SSH=0
 
@@ -114,7 +115,8 @@ Options:
   --install-docker       Configure Docker repository if possible and install Engine
   --locale <locale>      Set default system locale (e.g. en_US.UTF-8)
   --proxy-backend <val>  Configure nginx reverse proxy backend (use off/disable/disabled to remove)
-  --zram-algo <algo>     Override ZRAM compression algorithm (lz4|zstd)
+  --install-zram         Enable compressed ZRAM swap configuration task
+  --zram-algo <algo>     Override ZRAM compression algorithm (lz4|zstd|disabled)
   --overclock-conservative Enable firmware-safe CPU/GPU overclock profile (Pi 5/500/4/400/3/Zero 2)
   --secure-ssh           Harden sshd config and enable fail2ban protection
   --keep-screen-blanking Keep default desktop blanking behaviour
@@ -635,6 +637,9 @@ parse_args() {
         REQUESTED_LOCALE=$2
         shift
         ;;
+      --install-zram)
+        INSTALL_ZRAM=1
+        ;;
       --proxy-backend)
         if [[ $# -lt 2 ]]; then
           echo "--proxy-backend requires a value" >&2
@@ -650,11 +655,11 @@ parse_args() {
         fi
         local algo_override=${2,,}
         case "$algo_override" in
-          lz4|zstd)
+          lz4|zstd|disabled)
             ZRAM_ALGO_OVERRIDE=$algo_override
             ;;
           *)
-            echo "Unsupported --zram-algo value: $2 (allowed: lz4, zstd)" >&2
+            echo "Unsupported --zram-algo value: $2 (allowed: lz4, zstd, disabled)" >&2
             exit 1
             ;;
         esac
@@ -1144,8 +1149,37 @@ pick_zram_algorithm() {
   echo "lz4"
 }
 
-# Configure systemd zram generator with sized swap device.
+# Configure or disable systemd zram generator with sized swap device.
 task_configure_zram() {
+  if [[ $ZRAM_ALGO_OVERRIDE == "disabled" ]]; then
+    local removed=0
+    if [[ -f "$ZRAM_CONF_FILE" ]]; then
+      backup_file "$ZRAM_CONF_FILE"
+      rm -f "$ZRAM_CONF_FILE"
+      removed=1
+    fi
+    if systemctl list-unit-files systemd-zram-setup@.service >/dev/null 2>&1; then
+      systemctl disable --now systemd-zram-setup@zram0 >/dev/null 2>&1 || log_warn "Unable to disable systemd-zram-setup@zram0"
+    fi
+    swapoff /dev/zram0 >/dev/null 2>&1 || true
+    write_json_field "$CONFIG_OPTIMISER_STATE" "zram.size_mb" "disabled"
+    write_json_field "$CONFIG_OPTIMISER_STATE" "zram.algorithm" "disabled"
+    write_json_field "$CONFIG_OPTIMISER_STATE" "zram.last_configured" "$(date --iso-8601=seconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')"
+    if (( removed == 1 )); then
+      log_info "Disabled ZRAM and removed $ZRAM_CONF_FILE"
+    else
+      log_info "ZRAM already disabled"
+    fi
+    return 0
+  fi
+
+  if [[ $INSTALL_ZRAM -eq 0 ]]; then
+    log_info "ZRAM not requested; skipping"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (not requested)"
+    return 0
+  fi
+
   local size_mb algo
   size_mb=$(determine_zram_target_mb)
   if (( size_mb <= 0 )); then
@@ -1155,8 +1189,15 @@ task_configure_zram() {
     return 0
   fi
 
+  algo=$(pick_zram_algorithm)
+  if [[ $algo == "disabled" ]]; then
+    log_warn "ZRAM algorithm set to disabled; skipping configuration"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (algorithm disabled)"
+    return 0
+  fi
+
   if [[ $DRY_RUN -eq 1 ]]; then
-    algo=$(pick_zram_algorithm)
     log_info "[dry-run] Would configure systemd zram generator for ${size_mb}MB swap (algo $algo)"
     return 0
   fi
@@ -1168,7 +1209,6 @@ task_configure_zram() {
     backup_file "$ZRAM_CONF_FILE"
   fi
 
-  algo=$(pick_zram_algorithm)
   if [[ -n "$ZRAM_ALGO_OVERRIDE" ]]; then
     log_info "Using user-specified ZRAM compression algorithm: $algo"
   else
@@ -2056,6 +2096,13 @@ main() {
       log_info "Skipping docker task (enable with --install-docker)"
       SUMMARY_SKIPPED+=("$task (docker not requested)")
       continue
+    fi
+    if [[ "$task" == "zram" ]]; then
+      if [[ $ZRAM_ALGO_OVERRIDE != "disabled" && $INSTALL_ZRAM -eq 0 ]]; then
+        log_info "Skipping zram task (enable with --install-zram)"
+        SUMMARY_SKIPPED+=("$task (zram not requested)")
+        continue
+      fi
     fi
     if [[ "$task" == "screen_blanking" && $KEEP_SCREEN_BLANKING -eq 1 ]]; then
       log_info "Skipping screen_blanking task (requested keep-screen-blanking)"
