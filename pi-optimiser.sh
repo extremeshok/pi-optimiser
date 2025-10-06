@@ -2,7 +2,7 @@
 # ======================================================================
 # Coded by Adrian Jon Kriel :: admin@extremeshok.com
 # ======================================================================
-# pi-optimiser.sh :: version 7.1
+# pi-optimiser.sh :: version 7.2
 #======================================================================
 # One-shot optimiser for Raspberry Pi OS desktops. Key capabilities:
 #   - Removes bundled bloatware and trims apt caches for a lean install
@@ -25,7 +25,7 @@ if [[ ${BASH_VERSINFO[0]} -lt 4 ]]; then
 fi
 
 SCRIPT_NAME=$(basename "$0")
-SCRIPT_VERSION="7.1"
+SCRIPT_VERSION="7.2"
 
 MARKER_DIR="/etc/pi-optimiser"
 STATE_FILE="$MARKER_DIR/state"
@@ -1398,7 +1398,7 @@ task_configure_proxy() {
   cat <<EOF > "$conf"
 
 map \$http_upgrade \$connection_upgrade {
-    default upgrade;
+    default Upgrade;
     ''      close;
 }
 
@@ -1418,6 +1418,10 @@ server {
         # WebSocket support (harmless for normal HTTP)
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection \$connection_upgrade;
+        proxy_set_header Sec-WebSocket-Key \$http_sec_websocket_key;
+        proxy_set_header Sec-WebSocket-Version \$http_sec_websocket_version;
+        proxy_set_header Sec-WebSocket-Protocol \$http_sec_websocket_protocol;
+        proxy_set_header Sec-WebSocket-Extensions \$http_sec_websocket_extensions;
         proxy_cache_bypass \$http_upgrade;
 
         proxy_buffering off;
