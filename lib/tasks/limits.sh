@@ -1,14 +1,14 @@
 # >>> pi-task
 # id: limits
 # version: 1.1.0
-# description: Raise system file and process limits
+# description: Raise per-user file-descriptor and process limits
 # category: system
 # default_enabled: 1
 # power_sensitive: 0
 # <<< pi-task
 
 pi_task_register limits \
-  description="Raise system file and process limits" \
+  description="Raise per-user file-descriptor and process limits" \
   category=system \
   version=1.1.0 \
   default_enabled=1

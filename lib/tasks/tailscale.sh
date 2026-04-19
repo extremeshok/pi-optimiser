@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: tailscale
 # version: 1.1.0
-# description: Install and enable Tailscale
+# description: Install the Tailscale VPN client
 # category: network
 # default_enabled: 0
 # power_sensitive: 0
@@ -10,7 +10,7 @@
 # <<< pi-task
 
 pi_task_register tailscale \
-  description="Install and enable Tailscale" \
+  description="Install the Tailscale VPN client" \
   category=network \
   version=1.1.0 \
   default_enabled=0 \

@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: smartmontools
 # version: 1.0.0
-# description: Install smartmontools + enable smartd for NVMe/SSD health reporting
+# description: Monitor NVMe/SSD health (smartmontools + smartd)
 # category: packages
 # default_enabled: 0
 # flags: --install-smartmontools
@@ -9,7 +9,7 @@
 # <<< pi-task
 
 pi_task_register smartmontools \
-  description="Install smartmontools + enable smartd for NVMe/SSD health reporting" \
+  description="Monitor NVMe/SSD health (smartmontools + smartd)" \
   category=packages \
   version=1.0.0 \
   default_enabled=0 \

@@ -1,14 +1,14 @@
 # >>> pi-task
 # id: sysctl
 # version: 1.1.0
-# description: Tune kernel memory and writeback behaviour
+# description: Tune kernel memory and network settings for server/desktop use
 # category: system
 # default_enabled: 1
 # power_sensitive: 0
 # <<< pi-task
 
 pi_task_register sysctl \
-  description="Tune kernel memory and writeback behaviour" \
+  description="Tune kernel memory and network settings for server/desktop use" \
   category=system \
   version=1.1.0 \
   default_enabled=1

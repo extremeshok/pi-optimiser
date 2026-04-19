@@ -1,14 +1,14 @@
 # >>> pi-task
 # id: disable_swap
 # version: 1.1.0
-# description: Disable swap file service (requires 2GB+ RAM recommended)
+# description: Turn off the default swap file (best with 2 GB+ RAM)
 # category: storage
 # default_enabled: 1
 # power_sensitive: 0
 # <<< pi-task
 
 pi_task_register disable_swap \
-  description="Disable swap file service (requires 2GB+ RAM recommended)" \
+  description="Turn off the default swap file (best with 2 GB+ RAM)" \
   category=storage \
   version=1.1.0 \
   default_enabled=1

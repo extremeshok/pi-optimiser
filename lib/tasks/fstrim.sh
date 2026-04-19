@@ -1,14 +1,14 @@
 # >>> pi-task
 # id: fstrim
 # version: 1.1.0
-# description: Enable weekly fstrim.timer for SSD/NVMe TRIM
+# description: Enable weekly TRIM to keep SSD/NVMe storage healthy
 # category: storage
 # default_enabled: 1
 # power_sensitive: 0
 # <<< pi-task
 
 pi_task_register fstrim \
-  description="Enable weekly fstrim.timer for SSD/NVMe TRIM" \
+  description="Enable weekly TRIM to keep SSD/NVMe storage healthy" \
   category=storage \
   version=1.1.0 \
   default_enabled=1

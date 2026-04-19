@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: wifi_bt_power
 # version: 1.0.0
-# description: Disable Wi-Fi power save and optionally shut off Bluetooth for always-on kiosks
+# description: Keep Wi-Fi awake; optionally disable Bluetooth
 # category: network
 # default_enabled: 0
 # flags: --wifi-powersave-off,--disable-bluetooth
@@ -9,7 +9,7 @@
 # <<< pi-task
 
 pi_task_register wifi_bt_power \
-  description="Disable Wi-Fi power save and optionally shut off Bluetooth for always-on kiosks" \
+  description="Keep Wi-Fi awake; optionally disable Bluetooth" \
   category=network \
   version=1.0.0 \
   default_enabled=0 \

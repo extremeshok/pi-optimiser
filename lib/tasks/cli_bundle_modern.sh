@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: cli_bundle_modern
 # version: 1.0.0
-# description: Install a modern CLI bundle (ncdu, ripgrep, fd-find, bat, neovim)
+# description: Install a modern CLI bundle (ripgrep, fd, bat, neovim)
 # category: packages
 # default_enabled: 0
 # flags: --install-cli-modern
@@ -9,7 +9,7 @@
 # <<< pi-task
 
 pi_task_register cli_bundle_modern \
-  description="Install a modern CLI bundle (ncdu, ripgrep, fd-find, bat, neovim)" \
+  description="Install a modern CLI bundle (ripgrep, fd, bat, neovim)" \
   category=packages \
   version=1.0.0 \
   default_enabled=0 \

@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: node_exporter
 # version: 1.0.0
-# description: Install and enable prometheus-node-exporter on :9100
+# description: Export system metrics for Prometheus on :9100 (node-exporter)
 # category: network
 # default_enabled: 0
 # flags: --install-node-exporter
@@ -9,7 +9,7 @@
 # <<< pi-task
 
 pi_task_register node_exporter \
-  description="Install and enable prometheus-node-exporter on :9100" \
+  description="Export system metrics for Prometheus on :9100 (node-exporter)" \
   category=network \
   version=1.0.0 \
   default_enabled=0 \

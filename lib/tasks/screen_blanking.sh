@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: screen_blanking
 # version: 1.1.0
-# description: Disable console and desktop screen blanking
+# description: Stop the console and desktop from blanking the screen
 # category: display
 # default_enabled: 1
 # power_sensitive: 0
@@ -9,7 +9,7 @@
 # <<< pi-task
 
 pi_task_register screen_blanking \
-  description="Disable console and desktop screen blanking" \
+  description="Stop the console and desktop from blanking the screen" \
   category=display \
   version=1.1.0 \
   default_enabled=1 \

@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: ssh_import
 # version: 1.1.0
-# description: Import SSH authorized_keys from GitHub/URL
+# description: Import SSH authorized_keys from GitHub or an HTTPS URL
 # category: security
 # default_enabled: 0
 # power_sensitive: 0
@@ -10,7 +10,7 @@
 # <<< pi-task
 
 pi_task_register ssh_import \
-  description="Import SSH authorized_keys from GitHub/URL" \
+  description="Import SSH authorized_keys from GitHub or an HTTPS URL" \
   category=security \
   version=1.1.0 \
   default_enabled=0 \

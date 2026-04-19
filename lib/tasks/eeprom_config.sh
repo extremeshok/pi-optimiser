@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: eeprom_config
 # version: 1.2.0
-# description: Tune Raspberry Pi EEPROM SDRAM_BANKLOW for Pi 4/400/5/500
+# description: Tune bootloader EEPROM SDRAM_BANKLOW (Pi 4/400/5/500)
 # category: firmware-eeprom
 # default_enabled: 1
 # power_sensitive: 1
@@ -9,7 +9,7 @@
 # <<< pi-task
 
 pi_task_register eeprom_config \
-  description="Tune Raspberry Pi EEPROM SDRAM_BANKLOW for Pi 4/400/5/500" \
+  description="Tune bootloader EEPROM SDRAM_BANKLOW (Pi 4/400/5/500)" \
   category=firmware-eeprom \
   version=1.2.0 \
   default_enabled=1 \

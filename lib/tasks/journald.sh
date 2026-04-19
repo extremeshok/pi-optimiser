@@ -1,14 +1,14 @@
 # >>> pi-task
 # id: journald
 # version: 1.1.0
-# description: Limit systemd journal writes to RAM
+# description: Keep systemd journal in RAM to reduce disk writes
 # category: storage
 # default_enabled: 1
 # power_sensitive: 0
 # <<< pi-task
 
 pi_task_register journald \
-  description="Limit systemd journal writes to RAM" \
+  description="Keep systemd journal in RAM to reduce disk writes" \
   category=storage \
   version=1.1.0 \
   default_enabled=1

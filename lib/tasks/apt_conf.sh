@@ -1,14 +1,14 @@
 # >>> pi-task
 # id: apt_conf
 # version: 1.1.0
-# description: Reduce apt cache usage and auto updates
+# description: Trim apt cache growth and quiet the background package updater
 # category: system
 # default_enabled: 1
 # power_sensitive: 0
 # <<< pi-task
 
 pi_task_register apt_conf \
-  description="Reduce apt cache usage and auto updates" \
+  description="Trim apt cache growth and quiet the background package updater" \
   category=system \
   version=1.1.0 \
   default_enabled=1

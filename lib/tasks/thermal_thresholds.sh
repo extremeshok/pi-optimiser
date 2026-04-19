@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: thermal_thresholds
 # version: 1.0.0
-# description: Expose temp_limit, temp_soft_limit, and initial_turbo knobs
+# description: Set firmware thermal limits (temp_limit, initial_turbo)
 # category: hardware-clocks
 # default_enabled: 0
 # power_sensitive: 1
@@ -11,7 +11,7 @@
 # <<< pi-task
 
 pi_task_register thermal_thresholds \
-  description="Expose temp_limit, temp_soft_limit, and initial_turbo knobs" \
+  description="Set firmware thermal limits (temp_limit, initial_turbo)" \
   category=hardware-clocks \
   version=1.0.0 \
   default_enabled=0 \

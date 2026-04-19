@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: zram
 # version: 1.2.0
-# description: Configure compressed ZRAM swap sized to system memory
+# description: Use compressed RAM (ZRAM) as swap instead of writing to disk
 # category: storage
 # default_enabled: 0
 # power_sensitive: 0
@@ -49,7 +49,7 @@ pick_zram_algorithm() {
 }
 
 pi_task_register zram \
-  description="Configure compressed ZRAM swap sized to system memory" \
+  description="Use compressed RAM (ZRAM) as swap instead of writing to disk" \
   category=storage \
   version=1.2.0 \
   default_enabled=0 \

@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: pcie_gen3
 # version: 1.0.0
-# description: Opt-in Pi 5 PCIe Gen 3 (dtparam=pciex1_gen=3) for NVMe HATs
+# description: Enable Pi 5 PCIe Gen 3 for faster NVMe HATs (unofficial)
 # category: hardware-clocks
 # default_enabled: 0
 # power_sensitive: 1
@@ -11,7 +11,7 @@
 # <<< pi-task
 
 pi_task_register pcie_gen3 \
-  description="Opt-in Pi 5 PCIe Gen 3 (dtparam=pciex1_gen=3) for NVMe HATs" \
+  description="Enable Pi 5 PCIe Gen 3 for faster NVMe HATs (unofficial)" \
   category=hardware-clocks \
   version=1.0.0 \
   default_enabled=0 \

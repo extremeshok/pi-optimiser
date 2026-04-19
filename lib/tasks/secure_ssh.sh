@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: secure_ssh
 # version: 1.1.0
-# description: Harden sshd configuration and enable fail2ban
+# description: Harden SSH (no root/password login) and enable fail2ban
 # category: security
 # default_enabled: 0
 # power_sensitive: 0
@@ -10,7 +10,7 @@
 # <<< pi-task
 
 pi_task_register secure_ssh \
-  description="Harden sshd configuration and enable fail2ban" \
+  description="Harden SSH (no root/password login) and enable fail2ban" \
   category=security \
   version=1.1.0 \
   default_enabled=0 \

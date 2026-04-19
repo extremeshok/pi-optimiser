@@ -1,14 +1,14 @@
 # >>> pi-task
 # id: unattended
 # version: 1.1.0
-# description: Enable unattended security upgrades (6h cadence)
+# description: Auto-install security updates every 6 hours
 # category: system
 # default_enabled: 1
 # power_sensitive: 0
 # <<< pi-task
 
 pi_task_register unattended \
-  description="Enable unattended security upgrades (6h cadence)" \
+  description="Auto-install security updates every 6 hours" \
   category=system \
   version=1.1.0 \
   default_enabled=1

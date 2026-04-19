@@ -1,14 +1,14 @@
 # >>> pi-task
 # id: tmpfs_tmp
 # version: 1.1.0
-# description: Ensure /tmp is mounted as tmpfs
+# description: Mount /tmp in RAM (tmpfs) to reduce disk writes
 # category: storage
 # default_enabled: 1
 # power_sensitive: 0
 # <<< pi-task
 
 pi_task_register tmpfs_tmp \
-  description="Ensure /tmp is mounted as tmpfs" \
+  description="Mount /tmp in RAM (tmpfs) to reduce disk writes" \
   category=storage \
   version=1.1.0 \
   default_enabled=1

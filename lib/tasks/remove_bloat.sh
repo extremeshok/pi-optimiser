@@ -1,14 +1,14 @@
 # >>> pi-task
 # id: remove_bloat
 # version: 1.1.0
-# description: Remove bundled educational/demo packages
+# description: Remove preinstalled demo and educational packages
 # category: packages
 # default_enabled: 1
 # power_sensitive: 0
 # <<< pi-task
 
 pi_task_register remove_bloat \
-  description="Remove bundled educational/demo packages" \
+  description="Remove preinstalled demo and educational packages" \
   category=packages \
   version=1.1.0 \
   default_enabled=1

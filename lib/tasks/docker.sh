@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: docker
 # version: 1.2.0
-# description: Install Docker Engine and enable service
+# description: Install Docker Engine and enable the service
 # category: integrations
 # default_enabled: 0
 # power_sensitive: 0
@@ -10,7 +10,7 @@
 # <<< pi-task
 
 pi_task_register docker \
-  description="Install Docker Engine and enable service" \
+  description="Install Docker Engine and enable the service" \
   category=integrations \
   version=1.2.0 \
   default_enabled=0 \

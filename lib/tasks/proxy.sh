@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: proxy
 # version: 1.1.0
-# description: Expose a backend via nginx reverse proxy on port 80
+# description: Serve a backend through nginx on port 80
 # category: network
 # default_enabled: 0
 # power_sensitive: 0
@@ -10,7 +10,7 @@
 # <<< pi-task
 
 pi_task_register proxy \
-  description="Expose a backend via nginx reverse proxy on port 80" \
+  description="Serve a backend through nginx on port 80" \
   category=network \
   version=1.1.0 \
   default_enabled=0 \

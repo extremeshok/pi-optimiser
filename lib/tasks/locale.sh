@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: locale
 # version: 1.1.0
-# description: Set default system locale
+# description: Set the default system locale
 # category: system
 # default_enabled: 0
 # power_sensitive: 0
@@ -10,7 +10,7 @@
 # <<< pi-task
 
 pi_task_register locale \
-  description="Set default system locale" \
+  description="Set the default system locale" \
   category=system \
   version=1.1.0 \
   default_enabled=0 \

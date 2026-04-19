@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: watchdog
 # version: 1.1.0
-# description: Enable hardware watchdog when --enable-watchdog is provided
+# description: Auto-reboot the Pi if the kernel hangs (hardware watchdog)
 # category: hardware-clocks
 # default_enabled: 0
 # power_sensitive: 1
@@ -11,7 +11,7 @@
 # <<< pi-task
 
 pi_task_register watchdog \
-  description="Enable hardware watchdog when --enable-watchdog is provided" \
+  description="Auto-reboot the Pi if the kernel hangs (hardware watchdog)" \
   category=hardware-clocks \
   version=1.1.0 \
   default_enabled=0 \

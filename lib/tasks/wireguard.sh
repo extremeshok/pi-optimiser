@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: wireguard
 # version: 1.0.0
-# description: Install WireGuard tooling (wireguard-tools + resolvconf)
+# description: Install WireGuard VPN tools (configure /etc/wireguard yourself)
 # category: network
 # default_enabled: 0
 # flags: --install-wireguard
@@ -9,7 +9,7 @@
 # <<< pi-task
 
 pi_task_register wireguard \
-  description="Install WireGuard tooling (wireguard-tools + resolvconf)" \
+  description="Install WireGuard VPN tools (configure /etc/wireguard yourself)" \
   category=network \
   version=1.0.0 \
   default_enabled=0 \

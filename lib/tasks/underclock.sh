@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: underclock
 # version: 1.0.0
-# description: Apply an underclocked / low-power profile (inverse of oc_conservative)
+# description: Apply a low-power underclock profile
 # category: hardware-clocks
 # default_enabled: 0
 # power_sensitive: 0
@@ -11,7 +11,7 @@
 # <<< pi-task
 
 pi_task_register underclock \
-  description="Apply an underclocked / low-power profile (inverse of oc_conservative)" \
+  description="Apply a low-power underclock profile" \
   category=hardware-clocks \
   version=1.0.0 \
   default_enabled=0 \

@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: eeprom_refresh
 # version: 1.1.0
-# description: Refresh bootloader EEPROM via rpi-eeprom-update (opt-in)
+# description: Refresh the Raspberry Pi bootloader EEPROM
 # category: firmware-eeprom
 # default_enabled: 0
 # power_sensitive: 1
@@ -11,7 +11,7 @@
 # <<< pi-task
 
 pi_task_register eeprom_refresh \
-  description="Refresh bootloader EEPROM via rpi-eeprom-update (opt-in)" \
+  description="Refresh the Raspberry Pi bootloader EEPROM" \
   category=firmware-eeprom \
   version=1.1.0 \
   default_enabled=0 \

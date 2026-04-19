@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: libliftoff
 # version: 1.1.0
-# description: Ensure vc4 KMS overlays keep liftoff disabled
+# description: Disable KMS 'liftoff' to avoid compositor display glitches
 # category: display
 # default_enabled: 1
 # power_sensitive: 1
@@ -9,7 +9,7 @@
 # <<< pi-task
 
 pi_task_register libliftoff \
-  description="Ensure vc4 KMS overlays keep liftoff disabled" \
+  description="Disable KMS 'liftoff' to avoid compositor display glitches" \
   category=display \
   version=1.1.0 \
   default_enabled=1 \

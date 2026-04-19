@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: pi5_fan
 # version: 1.1.0
-# description: Apply Pi 5 PWM fan curve when --pi5-fan-profile is provided
+# description: Apply a Pi 5 PWM fan curve (quiet at 50 C, full at 75 C)
 # category: hardware-clocks
 # default_enabled: 0
 # power_sensitive: 1
@@ -11,7 +11,7 @@
 # <<< pi-task
 
 pi_task_register pi5_fan \
-  description="Apply Pi 5 PWM fan curve when --pi5-fan-profile is provided" \
+  description="Apply a Pi 5 PWM fan curve (quiet at 50 C, full at 75 C)" \
   category=hardware-clocks \
   version=1.1.0 \
   default_enabled=0 \

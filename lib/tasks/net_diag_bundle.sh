@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: net_diag_bundle
 # version: 1.0.0
-# description: Install network-diagnostic tools (nmap, iperf3, tcpdump, traceroute)
+# description: Install network-diagnostic tools (nmap, iperf3, tcpdump)
 # category: packages
 # default_enabled: 0
 # flags: --install-net-diag
@@ -9,7 +9,7 @@
 # <<< pi-task
 
 pi_task_register net_diag_bundle \
-  description="Install network-diagnostic tools (nmap, iperf3, tcpdump, traceroute)" \
+  description="Install network-diagnostic tools (nmap, iperf3, tcpdump)" \
   category=packages \
   version=1.0.0 \
   default_enabled=0 \

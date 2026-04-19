@@ -1,14 +1,14 @@
 # >>> pi-task
 # id: disable_services
 # version: 1.1.0
-# description: Disable non-essential background services
+# description: Stop non-essential background services (ModemManager, Avahi)
 # category: system
 # default_enabled: 1
 # power_sensitive: 0
 # <<< pi-task
 
 pi_task_register disable_services \
-  description="Disable non-essential background services" \
+  description="Stop non-essential background services (ModemManager, Avahi)" \
   category=system \
   version=1.1.0 \
   default_enabled=1

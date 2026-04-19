@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: timezone
 # version: 1.1.0
-# description: Set system timezone when --timezone is provided
+# description: Set the system timezone
 # category: system
 # default_enabled: 0
 # power_sensitive: 0
@@ -10,7 +10,7 @@
 # <<< pi-task
 
 pi_task_register timezone \
-  description="Set system timezone when --timezone is provided" \
+  description="Set the system timezone" \
   category=system \
   version=1.1.0 \
   default_enabled=0 \

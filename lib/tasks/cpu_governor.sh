@@ -1,14 +1,14 @@
 # >>> pi-task
 # id: cpu_governor
 # version: 1.1.0
-# description: Pin CPU scaling governor to performance via systemd
+# description: Keep the CPU at full speed (performance governor)
 # category: hardware-clocks
 # default_enabled: 1
 # power_sensitive: 0
 # <<< pi-task
 
 pi_task_register cpu_governor \
-  description="Pin CPU scaling governor to performance via systemd" \
+  description="Keep the CPU at full speed (performance governor)" \
   category=hardware-clocks \
   version=1.1.0 \
   default_enabled=1

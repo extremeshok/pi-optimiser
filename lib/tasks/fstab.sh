@@ -1,14 +1,14 @@
 # >>> pi-task
 # id: fstab
 # version: 1.1.0
-# description: Tune filesystem mounts for reduced writes
+# description: Reduce SD-card wear by tuning root filesystem mount options
 # category: storage
 # default_enabled: 1
 # power_sensitive: 0
 # <<< pi-task
 
 pi_task_register fstab \
-  description="Tune filesystem mounts for reduced writes" \
+  description="Reduce SD-card wear by tuning root filesystem mount options" \
   category=storage \
   version=1.1.0 \
   default_enabled=1

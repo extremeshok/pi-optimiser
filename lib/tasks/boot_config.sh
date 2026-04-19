@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: boot_config
 # version: 1.1.0
-# description: Tune /boot/firmware/config.txt for kiosk display stability
+# description: Apply recommended display settings (KMS overlay, HDMI hotplug)
 # category: display
 # default_enabled: 1
 # power_sensitive: 1
@@ -9,7 +9,7 @@
 # <<< pi-task
 
 pi_task_register boot_config \
-  description="Tune /boot/firmware/config.txt for kiosk display stability" \
+  description="Apply recommended display settings (KMS overlay, HDMI hotplug)" \
   category=display \
   version=1.1.0 \
   default_enabled=1 \

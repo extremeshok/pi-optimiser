@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: oc_conservative
 # version: 1.2.0
-# description: Apply Raspberry Pi overclock profile (Pi 5/500 2.8 GHz)
+# description: Apply a safe per-model overclock (Pi 5 2.8 GHz, Pi 4 1.75 GHz)
 # category: hardware-clocks
 # default_enabled: 0
 # power_sensitive: 1
@@ -11,7 +11,7 @@
 # <<< pi-task
 
 pi_task_register oc_conservative \
-  description="Apply Raspberry Pi overclock profile (Pi 5/500 2.8 GHz)" \
+  description="Apply a safe per-model overclock (Pi 5 2.8 GHz, Pi 4 1.75 GHz)" \
   category=hardware-clocks \
   version=1.2.0 \
   default_enabled=0 \

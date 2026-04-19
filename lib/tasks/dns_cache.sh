@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: dns_cache
 # version: 1.0.0
-# description: Enable systemd-resolved with a local DNS stub (127.0.0.53:53)
+# description: Run a local DNS cache (systemd-resolved) for faster lookups
 # category: network
 # default_enabled: 0
 # flags: --enable-dns-cache
@@ -9,7 +9,7 @@
 # <<< pi-task
 
 pi_task_register dns_cache \
-  description="Enable systemd-resolved with a local DNS stub (127.0.0.53:53)" \
+  description="Run a local DNS cache (systemd-resolved) for faster lookups" \
   category=network \
   version=1.0.0 \
   default_enabled=0 \

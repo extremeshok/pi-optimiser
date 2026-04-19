@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: hostname
 # version: 1.1.0
-# description: Set system hostname when --hostname is provided
+# description: Set the system hostname
 # category: system
 # default_enabled: 0
 # power_sensitive: 0
@@ -10,7 +10,7 @@
 # <<< pi-task
 
 pi_task_register hostname \
-  description="Set system hostname when --hostname is provided" \
+  description="Set the system hostname" \
   category=system \
   version=1.1.0 \
   default_enabled=0 \

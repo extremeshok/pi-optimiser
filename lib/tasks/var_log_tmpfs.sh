@@ -1,14 +1,14 @@
 # >>> pi-task
 # id: var_log_tmpfs
 # version: 1.2.0
-# description: Keep /var/log in RAM to reduce writes
+# description: Move /var/log to RAM to reduce disk writes
 # category: storage
 # default_enabled: 1
 # power_sensitive: 0
 # <<< pi-task
 
 pi_task_register var_log_tmpfs \
-  description="Keep /var/log in RAM to reduce writes" \
+  description="Move /var/log to RAM to reduce disk writes" \
   category=storage \
   version=1.2.0 \
   default_enabled=1

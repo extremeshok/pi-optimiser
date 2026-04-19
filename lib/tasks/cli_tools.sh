@@ -1,14 +1,14 @@
 # >>> pi-task
 # id: cli_tools
 # version: 1.1.0
-# description: Ensure essential CLI tools are installed
+# description: Install common command-line tools (htop, tmux, vim, curl)
 # category: packages
 # default_enabled: 1
 # power_sensitive: 0
 # <<< pi-task
 
 pi_task_register cli_tools \
-  description="Ensure essential CLI tools are installed" \
+  description="Install common command-line tools (htop, tmux, vim, curl)" \
   category=packages \
   version=1.1.0 \
   default_enabled=1

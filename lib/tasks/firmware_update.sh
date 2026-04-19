@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: firmware_update
 # version: 1.1.0
-# description: Run rpi-update non-interactively (opt-in)
+# description: Install the latest Raspberry Pi firmware (rpi-update; cutting edge)
 # category: firmware-eeprom
 # default_enabled: 0
 # power_sensitive: 1
@@ -11,7 +11,7 @@
 # <<< pi-task
 
 pi_task_register firmware_update \
-  description="Run rpi-update non-interactively (opt-in)" \
+  description="Install the latest Raspberry Pi firmware (rpi-update; cutting edge)" \
   category=firmware-eeprom \
   version=1.1.0 \
   default_enabled=0 \
