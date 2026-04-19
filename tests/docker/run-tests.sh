@@ -61,14 +61,17 @@ if "$BIN" --validate-config /etc/hosts 2>/dev/null; then
 fi
 pass "validate-config rejects /etc/hosts"
 
-step "--show-config emits parsable YAML"
-"$BIN" --show-config --config /tmp/good.yaml >/tmp/shown.yaml
-grep -q 'profile:' /tmp/shown.yaml
-pass "show-config"
+step "--show-config text mode includes expected sections"
+"$BIN" --show-config --config /tmp/good.yaml >/tmp/shown.txt
+grep -q 'Effective pi-optimiser config' /tmp/shown.txt
+grep -q 'Framework' /tmp/shown.txt
+pass "show-config text"
 
-step "--show-config --output json emits valid JSON"
-"$BIN" --show-config --config /tmp/good.yaml --output json | python3 -m json.tool >/dev/null
-pass "show-config --output json"
+step "--show-config --output json emits valid JSON with expected keys"
+"$BIN" --show-config --config /tmp/good.yaml --output json >/tmp/shown.json
+python3 -m json.tool </tmp/shown.json >/dev/null
+python3 -c 'import json,sys; d=json.load(open("/tmp/shown.json")); assert "metrics" in d and "freeze_tasks" in d and "integrations" in d, d.keys()'
+pass "show-config JSON"
 
 step "--completion bash / zsh produce usable output"
 "$BIN" --completion bash | head -n 1 >/dev/null
