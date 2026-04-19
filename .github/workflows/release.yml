@@ -20,8 +20,10 @@ jobs:
         run: |
           chmod +x scripts/build-bundle.sh
           scripts/build-bundle.sh dist/pi-optimiser-${{ github.ref_name }}.sh
-          sha256sum dist/pi-optimiser-${{ github.ref_name }}.sh \
-            > dist/pi-optimiser-${{ github.ref_name }}.sh.sha256
+          # cd into dist/ so the .sha256 file records just the filename
+          # and `sha256sum -c` works when users download the pair.
+          ( cd dist && sha256sum pi-optimiser-${{ github.ref_name }}.sh \
+            > pi-optimiser-${{ github.ref_name }}.sh.sha256 )
 
       - name: Upload release artefacts
         uses: softprops/action-gh-release@v2
