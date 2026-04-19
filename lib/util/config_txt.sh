@@ -126,16 +126,3 @@ PY
   return 1
 }
 
-# Append line to a file if not already present.
-ensure_line_in_file() {
-  local file=$1
-  local line=$2
-  if [[ ! -f "$file" ]]; then
-    touch "$file"
-  fi
-  if ! grep -Fx -- "$line" "$file" >/dev/null 2>&1; then
-    echo "$line" >> "$file"
-    return 0
-  fi
-  return 1
-}

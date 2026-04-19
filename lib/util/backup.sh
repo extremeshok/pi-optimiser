@@ -68,7 +68,9 @@ _backup_journal_append() {
   local dir="$MARKER_DIR/backups"
   local file="$dir/${task}.json"
   mkdir -p "$dir"
-  chmod 755 "$dir" 2>/dev/null || true
+  # 700: the journal records system paths; no reason a non-root user
+  # needs to enumerate them.
+  chmod 700 "$dir" 2>/dev/null || true
   BACKUP_JOURNAL_FILE="$file" BACKUP_TASK="$task" \
   BACKUP_ORIGINAL="$original" BACKUP_COPY="$backup" \
   run_python <<'PY' || true

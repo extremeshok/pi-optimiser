@@ -160,8 +160,14 @@ except Exception as e:
     print(f"echo 'pi-optimiser: failed to parse {path}: {e}' >&2; return 1", file=sys.stdout)
     sys.exit(0)
 
+import shlex
+
 def bv(value): return "1" if str(value).lower() in ("true","1","yes","on") else "0"
-def sv(value): return str(value)
+# sv() shell-quotes its argument so malicious values can't break out of
+# the assignment and trigger arbitrary execution when bash evals the
+# emitted script. Without this, a YAML value like `x"; id; echo "y`
+# would run `id` as root.
+def sv(value): return shlex.quote(str(value))
 
 def get(d, *keys, default=""):
     cur = d
@@ -184,8 +190,8 @@ zram = get(i, "zram", default={})
 out.append(f'INSTALL_ZRAM={bv(get(zram, "enabled"))}')
 algo = get(zram, "algo", default="")
 if algo and algo != "lz4":
-    out.append(f'ZRAM_ALGO_OVERRIDE="{algo}"')
-out.append(f'PROXY_BACKEND="{sv(get(i, "proxy_backend"))}"')
+    out.append(f'ZRAM_ALGO_OVERRIDE={sv(algo)}')
+out.append(f'PROXY_BACKEND={sv(get(i, "proxy_backend"))}')
 out.append(f'INSTALL_NODE_EXPORTER={bv(get(i, "node_exporter"))}')
 out.append(f'INSTALL_SMARTMONTOOLS={bv(get(i, "smartmontools"))}')
 out.append(f'INSTALL_CLI_MODERN={bv(get(i, "cli_modern"))}')
@@ -204,7 +210,7 @@ for v in ("temp_limit", "temp_soft_limit", "initial_turbo"):
     val = get(h, v)
     if val:
         var = {"temp_limit":"TEMP_LIMIT","temp_soft_limit":"TEMP_SOFT_LIMIT","initial_turbo":"INITIAL_TURBO"}[v]
-        out.append(f'{var}="{val}"; THERMAL_THRESHOLDS_SET=1')
+        out.append(f'{var}={sv(val)}; THERMAL_THRESHOLDS_SET=1')
 
 f = data.get("firmware", {})
 out.append(f'FIRMWARE_UPDATE={bv(get(f, "firmware_update"))}')
@@ -212,18 +218,20 @@ out.append(f'EEPROM_UPDATE={bv(get(f, "eeprom_update"))}')
 
 s = data.get("security", {})
 out.append(f'SECURE_SSH={bv(get(s, "secure_ssh"))}')
-out.append(f'SSH_IMPORT_GITHUB="{sv(get(s, "ssh_import_github"))}"')
-out.append(f'SSH_IMPORT_URL="{sv(get(s, "ssh_import_url"))}"')
+out.append(f'SSH_IMPORT_GITHUB={sv(get(s, "ssh_import_github"))}')
+out.append(f'SSH_IMPORT_URL={sv(get(s, "ssh_import_url"))}')
 
 sy = data.get("system", {})
-out.append(f'REQUESTED_HOSTNAME="{sv(get(sy, "hostname"))}"')
-out.append(f'REQUESTED_TIMEZONE="{sv(get(sy, "timezone"))}"')
-out.append(f'REQUESTED_LOCALE="{sv(get(sy, "locale"))}"')
+out.append(f'REQUESTED_HOSTNAME={sv(get(sy, "hostname"))}')
+out.append(f'REQUESTED_TIMEZONE={sv(get(sy, "timezone"))}')
+out.append(f'REQUESTED_LOCALE={sv(get(sy, "locale"))}')
 out.append(f'KEEP_SCREEN_BLANKING={bv(get(sy, "keep_screen_blanking"))}')
 
 print("\n".join(out))
 PY
   ) || return 1
+  # The emitted script contains only `VAR='shell-quoted value'` lines,
+  # so eval is safe despite its reputation.
   # shellcheck disable=SC2086
   eval "$script"
   log_info "Loaded config from $path"

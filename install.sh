@@ -72,11 +72,18 @@ fi
 mkdir -p "$release_dir"
 # Copy only the files the runtime needs; skip CI, docs, and release
 # bundles since they bloat the install.
-for item in pi-optimiser.sh lib scripts README.md AGENTS.md LICENSE SECURITY.md; do
+for item in pi-optimiser.sh lib scripts share README.md AGENTS.md LICENSE SECURITY.md; do
   if [[ -e "$src_root/$item" ]]; then
     cp -a "$src_root/$item" "$release_dir/"
   fi
 done
+
+# Drop logrotate config so /var/log/pi-optimiser.log doesn't grow
+# unbounded. Idempotent; the file's small and owned by this package.
+if [[ -f "$release_dir/share/logrotate/pi-optimiser" ]]; then
+  install -m 0644 "$release_dir/share/logrotate/pi-optimiser" \
+    /etc/logrotate.d/pi-optimiser 2>/dev/null || true
+fi
 
 chmod 755 "$release_dir"
 chmod +x "$release_dir/pi-optimiser.sh"

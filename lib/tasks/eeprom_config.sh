@@ -39,7 +39,7 @@ run_eeprom_config() {
   fi
 
   mkdir -p "$EEPROM_STAGING_DIR"
-  chmod 755 "$EEPROM_STAGING_DIR"
+  chmod 700 "$EEPROM_STAGING_DIR"
 
   local current_conf new_conf
   current_conf=$(mktemp)

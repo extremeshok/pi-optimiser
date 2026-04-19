@@ -31,7 +31,7 @@ run_screen_blanking() {
 
   if [[ -f "$CMDLINE_FILE" ]] && ! grep -qw 'consoleblank=0' "$CMDLINE_FILE"; then
     backup_file "$CMDLINE_FILE"
-    CMDLINE_PATH="$CMDLINE_FILE" python3 <<'PY'
+    CMDLINE_PATH="$CMDLINE_FILE" run_python <<'PY'
 import os
 from pathlib import Path
 path = Path(os.environ['CMDLINE_PATH'])

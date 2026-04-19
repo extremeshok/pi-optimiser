@@ -144,7 +144,7 @@ out = {
         "throttled": safe_run(["vcgencmd", "get_throttled"]).split("=", 1)[-1],
         "soc_temp": safe_run(["vcgencmd", "measure_temp"]).split("=", 1)[-1],
     },
-    "schema_version": state.get("schema_version", 1),
+    "schema_version": state.get("schema_version", 2),
     "task_summary": {
         "total": len(order),
         **summary,

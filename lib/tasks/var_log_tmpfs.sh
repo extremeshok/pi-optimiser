@@ -70,6 +70,12 @@ CFG
   fi
 
   if (( journald_stopped == 1 )); then
-    systemctl start systemd-journald >/dev/null 2>&1 || log_warn "Failed to restart systemd-journald"
+    if ! systemctl start systemd-journald >/dev/null 2>&1; then
+      # journald is critical; a silent "completed" here would leave
+      # the system without a working system log. Return 1 so --status
+      # reflects the true state and the operator can intervene.
+      log_error "Failed to restart systemd-journald after /var/log remount"
+      return 1
+    fi
   fi
 }

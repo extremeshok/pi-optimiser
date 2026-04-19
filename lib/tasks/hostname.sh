@@ -37,7 +37,7 @@ run_hostname() {
   fi
   if [[ -f /etc/hosts ]]; then
     backup_file /etc/hosts
-    OLD_HN="$old_hostname" NEW_HN="$REQUESTED_HOSTNAME" python3 <<'PY'
+    OLD_HN="$old_hostname" NEW_HN="$REQUESTED_HOSTNAME" run_python <<'PY'
 import os
 from pathlib import Path
 path = Path('/etc/hosts')

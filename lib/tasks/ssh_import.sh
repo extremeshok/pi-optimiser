@@ -52,10 +52,12 @@ run_ssh_import() {
   tmp_keys=$(mktemp)
   local imported=0
 
-  if [[ -n "$SSH_IMPORT_GITHUB" ]]; then
-    local gh_url="https://github.com/${SSH_IMPORT_GITHUB}.keys"
-    if curl -fsSL "$gh_url" -o "$tmp_keys" && [[ -s "$tmp_keys" ]]; then
-      KEYS_FILE="$tmp_keys" AUTH_FILE="$authorized" SRC="github:$SSH_IMPORT_GITHUB" python3 <<'PY'
+  # Append keys from a downloaded file into authorized_keys, de-duping
+  # by the key comment (fingerprint would be better but requires parsing
+  # each line; the comment is a close-enough proxy for our purposes).
+  _ssh_import_merge_keys() {
+    local keys_file=$1 auth_file=$2 src_label=$3
+    KEYS_FILE="$keys_file" AUTH_FILE="$auth_file" SRC="$src_label" run_python <<'PY'
 import os
 from pathlib import Path
 keys = Path(os.environ['KEYS_FILE']).read_text().splitlines()
@@ -65,7 +67,8 @@ if auth.exists():
     for line in auth.read_text().splitlines():
         stripped = line.strip()
         if stripped and not stripped.startswith('#'):
-            existing.add(stripped.split()[-1] if len(stripped.split()) >= 3 else stripped)
+            parts = stripped.split()
+            existing.add(parts[-1] if len(parts) >= 3 else stripped)
 added = []
 for key in keys:
     key = key.strip()
@@ -84,6 +87,17 @@ if added:
             fh.write(k + "\n")
 print(len(added))
 PY
+  }
+
+  if [[ -n "$SSH_IMPORT_GITHUB" ]]; then
+    if ! validate_github_handle "$SSH_IMPORT_GITHUB"; then
+      log_error "--ssh-import-github: '$SSH_IMPORT_GITHUB' is not a valid GitHub handle"
+      rm -f "$tmp_keys"
+      return 1
+    fi
+    local gh_url="https://github.com/${SSH_IMPORT_GITHUB}.keys"
+    if curl -fsSL "$gh_url" -o "$tmp_keys" && [[ -s "$tmp_keys" ]]; then
+      _ssh_import_merge_keys "$tmp_keys" "$authorized" "github:$SSH_IMPORT_GITHUB" >/dev/null
       imported=1
       log_info "Imported SSH keys from $gh_url into $authorized"
     else
@@ -98,34 +112,7 @@ PY
       return 1
     fi
     if curl -fsSL "$SSH_IMPORT_URL" -o "$tmp_keys" && [[ -s "$tmp_keys" ]]; then
-      KEYS_FILE="$tmp_keys" AUTH_FILE="$authorized" SRC="url:$SSH_IMPORT_URL" python3 <<'PY'
-import os
-from pathlib import Path
-keys = Path(os.environ['KEYS_FILE']).read_text().splitlines()
-auth = Path(os.environ['AUTH_FILE'])
-existing = set()
-if auth.exists():
-    for line in auth.read_text().splitlines():
-        stripped = line.strip()
-        if stripped and not stripped.startswith('#'):
-            existing.add(stripped.split()[-1] if len(stripped.split()) >= 3 else stripped)
-added = []
-for key in keys:
-    key = key.strip()
-    if not key or key.startswith('#'):
-        continue
-    parts = key.split()
-    marker = parts[-1] if len(parts) >= 3 else key
-    if marker in existing:
-        continue
-    added.append(key)
-    existing.add(marker)
-if added:
-    with auth.open('a') as fh:
-        fh.write(f"\n# pi-optimiser import: {os.environ['SRC']}\n")
-        for k in added:
-            fh.write(k + "\n")
-PY
+      _ssh_import_merge_keys "$tmp_keys" "$authorized" "url:$SSH_IMPORT_URL" >/dev/null
       imported=1
       log_info "Imported SSH keys from $SSH_IMPORT_URL into $authorized"
     else

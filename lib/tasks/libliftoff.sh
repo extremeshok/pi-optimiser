@@ -31,7 +31,7 @@ run_libliftoff() {
   fi
   backup_file "$cfg"
   local result
-  result=$(CONFIG_FILE="$cfg" python3 <<'PY'
+  result=$(CONFIG_FILE="$cfg" run_python <<'PY'
 import os
 from pathlib import Path
 cfg_path = Path(os.environ['CONFIG_FILE'])

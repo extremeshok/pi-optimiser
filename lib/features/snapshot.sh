@@ -42,8 +42,12 @@ declare -a PI_SNAPSHOT_PATHS=(
 )
 
 pi_take_snapshot() {
+  if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+    log_info "[dry-run] would snapshot ${#PI_SNAPSHOT_PATHS[@]} paths to $PI_SNAPSHOT_DIR"
+    return 0
+  fi
   mkdir -p "$PI_SNAPSHOT_DIR"
-  chmod 755 "$PI_SNAPSHOT_DIR"
+  chmod 700 "$PI_SNAPSHOT_DIR"
   local ts archive
   ts=$(date +%Y%m%d%H%M%S)
   archive="$PI_SNAPSHOT_DIR/$ts.tgz"
@@ -59,10 +63,13 @@ pi_take_snapshot() {
   fi
 
   log_info "Snapshotting ${#existing[@]} paths to $archive"
-  # Exclude our own snapshots/ and backups/ dirs so the archive doesn't
-  # try to bundle itself. Also skip state.schema/state.json since they
-  # are transient state, not operator-edited config.
-  if tar -czf "$archive" --absolute-names \
+  # Store as RELATIVE paths (tar -P strips the leading /, which is the
+  # default for GNU tar without -P or --absolute-names). On restore we
+  # extract against / so the effective destination is the same, but
+  # the archive itself can be safely untarred into a staging directory
+  # first for inspection without risking system writes.
+  # Exclude our own snapshots/backups/state dirs to avoid self-recursion.
+  if tar -czf "$archive" \
        --exclude="$PI_SNAPSHOT_DIR" \
        --exclude="$MARKER_DIR/backups" \
        --exclude="$MARKER_DIR/state.json" \
@@ -88,6 +95,11 @@ pi_restore_snapshot() {
     log_error "Snapshot file is empty or corrupt: $archive"
     return 1
   fi
+  if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+    log_info "[dry-run] would restore $archive to /"
+    tar -tzf "$archive" 2>/dev/null | head -10 | sed 's/^/[dry-run]   /'
+    return 0
+  fi
   if [[ ${PI_NON_INTERACTIVE:-0} -ne 1 ]]; then
     echo "About to overwrite system config from: $archive"
     echo "This will touch /etc/* and /boot/firmware/* entries from the snapshot."
@@ -105,19 +117,37 @@ pi_restore_snapshot() {
   # shellcheck disable=SC2064
   trap "rm -rf '$stage'" RETURN
 
-  if ! tar -xzf "$archive" -C "$stage" 2>/dev/null; then
-    log_error "Failed to extract $archive"
+  # Defensive pre-scan: reject any archive containing entries that
+  # would escape root on extraction (absolute paths or .. traversal).
+  # GNU tar also enforces this on extract by default, but an explicit
+  # check produces a better error message and prevents partial writes.
+  local bad
+  bad=$(tar -tzf "$archive" 2>/dev/null | grep -nE '^(/|(\./)?\.\./|.*/\.\./)' | head -n 1)
+  if [[ -n "$bad" ]]; then
+    log_error "Snapshot contains unsafe path: $bad"
     return 1
   fi
-  log_info "Merging snapshot contents back onto the live filesystem"
-  # Use -a to preserve perms/ownership; --update to only overwrite when
-  # newer is NOT what we want — we always want snapshot wins.
-  if ! cp -a --parents "$stage"/* / 2>/dev/null; then
-    # Fallback: raw tar-to-root extract preserves attrs too.
-    if ! tar -xzf "$archive" -C / 2>/dev/null; then
-      log_error "Restore extract-in-place failed"
-      return 1
-    fi
+  # Check for symlinks whose target escapes the archive's directory
+  # tree. `tar -tvzf` listing includes symlink targets in the form
+  # `foo -> /etc/shadow`; we reject any absolute or .. target.
+  bad=$(tar -tvzf "$archive" 2>/dev/null | awk '/->/ { for(i=1;i<=NF;i++) if($i=="->"){print $(i+1); break} }' \
+        | grep -E '^(/|.*/\.\./|\.\./)' | head -n 1)
+  if [[ -n "$bad" ]]; then
+    log_error "Snapshot contains symlink pointing outside archive: $bad"
+    return 1
+  fi
+
+  log_info "Extracting snapshot onto the live filesystem"
+  # --no-same-owner prevents chown forgery; --no-absolute-names is a
+  # belt on top of the pre-scan since GNU tar already strips leading /;
+  # --no-overwrite-dir keeps existing dirs' modes rather than restoring
+  # them from the archive (harmless for our own snapshots).
+  if ! tar -xzf "$archive" -C / \
+        --no-same-owner \
+        --no-absolute-names \
+        --no-overwrite-dir 2>/dev/null; then
+    log_error "Snapshot extraction failed"
+    return 1
   fi
   log_info "Snapshot restore complete. Some changes require a reboot."
 }
