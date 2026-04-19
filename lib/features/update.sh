@@ -160,7 +160,7 @@ pi_self_update() {
 
   mkdir -p "$release_dir"
   local item
-  for item in pi-optimiser.sh lib scripts install.sh README.md LICENSE SECURITY.md; do
+  for item in pi-optimiser.sh lib scripts install.sh README.md AGENTS.md LICENSE SECURITY.md; do
     [[ -e "$src_root/$item" ]] && cp -a "$src_root/$item" "$release_dir/"
   done
   chmod +x "$release_dir/pi-optimiser.sh" 2>/dev/null || true

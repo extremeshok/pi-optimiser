@@ -72,7 +72,7 @@ fi
 mkdir -p "$release_dir"
 # Copy only the files the runtime needs; skip CI, docs, and release
 # bundles since they bloat the install.
-for item in pi-optimiser.sh lib scripts README.md LICENSE SECURITY.md; do
+for item in pi-optimiser.sh lib scripts README.md AGENTS.md LICENSE SECURITY.md; do
   if [[ -e "$src_root/$item" ]]; then
     cp -a "$src_root/$item" "$release_dir/"
   fi
