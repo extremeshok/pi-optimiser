@@ -1,0 +1,41 @@
+# >>> pi-task
+# id: timezone
+# version: 1.1.0
+# description: Set system timezone when --timezone is provided
+# category: system
+# default_enabled: 0
+# power_sensitive: 0
+# flags: --timezone
+# gate_var: REQUESTED_TIMEZONE
+# <<< pi-task
+
+pi_task_register timezone \
+  description="Set system timezone when --timezone is provided" \
+  category=system \
+  version=1.1.0 \
+  default_enabled=0 \
+  flags="--timezone" \
+  gate_var=REQUESTED_TIMEZONE
+
+run_timezone() {
+  if [[ -z "$REQUESTED_TIMEZONE" ]]; then
+    log_info "No timezone requested; skipping"
+    pi_skip_reason "not requested"
+    return 2
+  fi
+  if [[ ! -f "/usr/share/zoneinfo/$REQUESTED_TIMEZONE" ]]; then
+    log_error "Timezone '$REQUESTED_TIMEZONE' not found under /usr/share/zoneinfo"
+    return 1
+  fi
+  if command -v timedatectl >/dev/null 2>&1; then
+    if ! timedatectl set-timezone "$REQUESTED_TIMEZONE" >/dev/null 2>&1; then
+      log_error "timedatectl failed to set timezone to $REQUESTED_TIMEZONE"
+      return 1
+    fi
+  else
+    ln -sf "/usr/share/zoneinfo/$REQUESTED_TIMEZONE" /etc/localtime
+    echo "$REQUESTED_TIMEZONE" > /etc/timezone
+  fi
+  log_info "System timezone set to $REQUESTED_TIMEZONE"
+  write_json_field "$CONFIG_OPTIMISER_STATE" "timezone.name" "$REQUESTED_TIMEZONE"
+}
