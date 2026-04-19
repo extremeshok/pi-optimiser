@@ -235,6 +235,32 @@ out.append(f'REQUESTED_TIMEZONE={sv(get(sy, "timezone"))}')
 out.append(f'REQUESTED_LOCALE={sv(get(sy, "locale"))}')
 out.append(f'KEEP_SCREEN_BLANKING={bv(get(sy, "keep_screen_blanking"))}')
 
+# Prometheus metrics opt-in + optional path override.
+m = data.get("metrics", {})
+if isinstance(m, dict):
+    enabled = get(m, "enabled", default="")
+    if str(enabled).lower() in ("false", "0", "no", "off"):
+        out.append('PI_METRICS_ENABLED=0')
+    mpath = get(m, "path")
+    if mpath:
+        out.append(f'PI_METRICS_PATH={sv(mpath)}')
+
+# Per-task freeze: `freeze_tasks: [id1, id2]` or nested list form.
+# Supports both inline `[a, b]` and multi-line `- a` YAML styles; our
+# tiny parser flattens multi-line lists into a single `- a - b` string
+# so we split on both commas and `- ` markers.
+frozen = data.get("freeze_tasks", "")
+if isinstance(frozen, str) and frozen:
+    import re
+    raw = frozen.strip()
+    if raw.startswith("[") and raw.endswith("]"):
+        raw = raw[1:-1]
+    parts = re.split(r"[,\s]+", raw.replace("-", " "))
+    ids = [p.strip().strip('"\'') for p in parts if p.strip()]
+    for fid in ids:
+        if re.match(r"^[a-z0-9_]+$", fid):
+            out.append(f'PI_FROZEN_TASKS[{sv(fid)}]=1')
+
 print("\n".join(out))
 PY
   ) || return 1

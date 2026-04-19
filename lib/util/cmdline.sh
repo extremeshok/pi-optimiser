@@ -10,6 +10,10 @@
 cmdline_ensure_token() {
   local token=$1
   local file=${2:-$CMDLINE_FILE}
+  # Divert writes to a scratch buffer under --diff so /boot/firmware/
+  # stays untouched; the buffer is seeded with the current file so
+  # chained edits compound. See lib/util/config_txt.sh for the helper.
+  file=$(_pi_config_preview_target "$file") || return 2
   if [[ ! -f "$file" ]]; then
     return 2
   fi

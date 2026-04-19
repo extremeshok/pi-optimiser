@@ -55,3 +55,12 @@ run_thermal_thresholds() {
   write_json_field "$CONFIG_OPTIMISER_STATE" "hardware.thermal.temp_soft_limit" "${TEMP_SOFT_LIMIT:-unset}"
   write_json_field "$CONFIG_OPTIMISER_STATE" "hardware.thermal.initial_turbo" "${INITIAL_TURBO:-unset}"
 }
+
+pi_preview_thermal_thresholds() {
+  [[ ${THERMAL_THRESHOLDS_SET:-0} -eq 0 ]] && return 0
+  local -a entries=()
+  [[ -n ${TEMP_LIMIT:-} ]] && entries+=("temp_limit=$TEMP_LIMIT")
+  [[ -n ${TEMP_SOFT_LIMIT:-} ]] && entries+=("temp_soft_limit=$TEMP_SOFT_LIMIT")
+  [[ -n ${INITIAL_TURBO:-} ]] && entries+=("initial_turbo=$INITIAL_TURBO")
+  (( ${#entries[@]} > 0 )) && pi_preview_apply_entries "${entries[@]}"
+}

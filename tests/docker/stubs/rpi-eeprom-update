@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Stub rpi-eeprom-update — claims firmware is current.
+case "${1:-}" in
+  -a|--auto)
+    printf 'rpi-eeprom-update: stub applied\n' >&2
+    exit 0 ;;
+  *)
+    printf 'BOOTLOADER: up to date\n'
+    printf '   CURRENT: Fri 01 Jan 00:00:00 UTC 2024 (0)\n'
+    printf '    LATEST: Fri 01 Jan 00:00:00 UTC 2024 (0)\n'
+    printf '   RELEASE: default (/lib/firmware/raspberrypi/bootloader-2712/default)\n'
+    printf '            Use raspi-config to change the release.\n'
+    exit 0 ;;
+esac

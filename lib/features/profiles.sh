@@ -62,7 +62,8 @@ pi_validate_config() {
 import os, sys
 path = os.environ["CFG_PATH"]
 known_top = {"version", "profile", "integrations", "hardware",
-             "firmware", "security", "system"}
+             "firmware", "security", "system",
+             "metrics", "freeze_tasks"}
 seen = set()
 with open(path) as fh:
     for raw in fh:
@@ -148,6 +149,13 @@ pi_self_test() {
 # `pi-optimiser --yes --no-tui` ran right now (after merging CLI
 # flags over config.yaml over defaults). Honours --output json.
 pi_show_effective_config() {
+  # Bash forbids `${!arr[*]:-default}` (the `:-` conflicts with the
+  # indirect-expansion `!` prefix), so materialise the frozen-task list
+  # into a plain scalar first and interpolate that.
+  local _frozen_ids=""
+  if (( ${#PI_FROZEN_TASKS[@]} > 0 )); then
+    _frozen_ids="${!PI_FROZEN_TASKS[*]}"
+  fi
   if [[ ${PI_OUTPUT_JSON:-0} -eq 1 ]]; then
     V_TAILSCALE="${INSTALL_TAILSCALE:-0}" \
     V_DOCKER="${INSTALL_DOCKER:-0}" \
@@ -181,6 +189,11 @@ pi_show_effective_config() {
     V_FORCE="${FORCE:-0}" \
     V_GH="${SSH_IMPORT_GITHUB:-}" \
     V_URL="${SSH_IMPORT_URL:-}" \
+    V_METRICS_ENABLED="${PI_METRICS_ENABLED:-1}" \
+    V_METRICS_PATH="${PI_METRICS_PATH:-}" \
+    V_WATCH="${PI_WATCH:-0}" \
+    V_DIFF="${PI_DIFF_MODE:-0}" \
+    V_FROZEN="$_frozen_ids" \
     run_python <<'PY'
 import json, os, sys
 def b(name): return os.environ.get(name, "0") == "1"
@@ -231,6 +244,13 @@ out = {
         "locale": s("V_LOCALE"),
         "keep_screen_blanking": b("V_KEEP_BLANK"),
     },
+    "metrics": {
+        "enabled": b("V_METRICS_ENABLED"),
+        "path": s("V_METRICS_PATH"),
+    },
+    "watch": b("V_WATCH"),
+    "diff_preview": b("V_DIFF"),
+    "freeze_tasks": sorted((os.environ.get("V_FROZEN", "") or "").split()) or None,
 }
 json.dump(out, sys.stdout, indent=2, sort_keys=True)
 sys.stdout.write("\n")
@@ -288,6 +308,13 @@ System
   timezone            ${REQUESTED_TIMEZONE:-<unset>}
   locale              ${REQUESTED_LOCALE:-<unset>}
   keep_screen_blanking ${KEEP_SCREEN_BLANKING:-0}
+
+Framework
+  metrics_enabled     ${PI_METRICS_ENABLED:-1}
+  metrics_path        ${PI_METRICS_PATH:-<default>}
+  watch               ${PI_WATCH:-0}
+  diff_preview        ${PI_DIFF_MODE:-0}
+  freeze_tasks        ${_frozen_ids:-<none>}
 CFG
 }
 

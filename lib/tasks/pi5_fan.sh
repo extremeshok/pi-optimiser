@@ -68,3 +68,13 @@ run_pi5_fan() {
   fi
   write_json_field "$CONFIG_OPTIMISER_STATE" "fan.profile" "pi5_50_60_67_75"
 }
+
+pi_preview_pi5_fan() {
+  [[ ${INSTALL_PI5_FAN_PROFILE:-0} -eq 0 ]] && return 0
+  is_pi5 || return 0
+  pi_preview_apply_entries \
+    "dtparam=fan_temp0=50000" "dtparam=fan_temp0_hyst=5000" "dtparam=fan_temp0_speed=75" \
+    "dtparam=fan_temp1=60000" "dtparam=fan_temp1_hyst=5000" "dtparam=fan_temp1_speed=125" \
+    "dtparam=fan_temp2=67000" "dtparam=fan_temp2_hyst=5000" "dtparam=fan_temp2_speed=200" \
+    "dtparam=fan_temp3=75000" "dtparam=fan_temp3_hyst=5000" "dtparam=fan_temp3_speed=255"
+}

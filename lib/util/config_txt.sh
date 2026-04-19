@@ -2,14 +2,42 @@
 # lib/util/config_txt.sh — /boot/firmware/config.txt editors
 #
 # Functions: ensure_config_line, ensure_config_key_value,
-#            ensure_line_in_file
-# Globals (read): CONFIG_TXT_FILE
+#            ensure_line_in_file, _pi_config_preview_target
+# Globals (read): CONFIG_TXT_FILE, PI_CONFIG_PREVIEW, PI_CONFIG_PREVIEW_DIR
 #
 # Return codes (ensure_config_*):
 #   0 — changed
 #   1 — unchanged (no-op, not an error)
 #   2 — parse/IO failure
 # ======================================================================
+
+# Under --diff, helpers divert writes to a scratch buffer so the real
+# /boot/firmware/* files are never touched. The buffer is seeded on
+# first use from the real file so chained edits compound correctly.
+# lib/features/diff.sh::pi_diff_flush prints unified diffs at end-of-run.
+_pi_config_preview_target() {
+  local real=$1
+  if [[ "${PI_CONFIG_PREVIEW:-0}" != "1" ]]; then
+    printf '%s\n' "$real"
+    return 0
+  fi
+  if [[ -z "${PI_CONFIG_PREVIEW_DIR:-}" ]]; then
+    PI_CONFIG_PREVIEW_DIR=$(mktemp -d /tmp/pi-optimiser-diff.XXXXXX) || return 1
+    export PI_CONFIG_PREVIEW_DIR
+  fi
+  local slug
+  slug=$(printf '%s' "$real" | tr '/ .' '___')
+  local buf="$PI_CONFIG_PREVIEW_DIR/$slug"
+  if [[ ! -f "$buf" ]]; then
+    if [[ -f "$real" ]]; then
+      cp "$real" "$buf"
+    else
+      : > "$buf"
+    fi
+    printf '%s\n' "$real" > "$buf.path"
+  fi
+  printf '%s\n' "$buf"
+}
 
 # Ensure a config.txt line exists exactly once (case-insensitive compare).
 ensure_config_line() {
@@ -18,6 +46,7 @@ ensure_config_line() {
   if [[ -z "$target" ]]; then
     target=$CONFIG_TXT_FILE
   fi
+  target=$(_pi_config_preview_target "$target") || return 2
   if [[ ! -f "$target" ]]; then
     touch "$target"
   fi
@@ -76,6 +105,7 @@ ensure_config_key_value() {
   if [[ "$entry" != *=* ]]; then
     return 2
   fi
+  target=$(_pi_config_preview_target "$target") || return 2
   if [[ ! -f "$target" ]]; then
     touch "$target"
   fi

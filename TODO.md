@@ -3,56 +3,42 @@
 Tracked here so new contributors can pick them up without another
 audit pass surfacing the same thing. Organised by effort.
 
-## Must happen next
-
-- **Interactive TUI walk-through.** The whiptail UI has been
-  structurally verified (boot, source, profile suggester, non-TTY
-  suppression, `TERM=dumb` guard). It has not been driven through
-  every screen on a real terminal. Requires a human + a display.
-  Expected outputs:
-  - Welcome → profile suggestion → profile applied
-  - Main menu reachable; each category checklist toggles correctly
-  - Input forms accept valid input and reject invalid (regex)
-  - Apply → config saved, tasks dispatched, progress shown
-  - Status screen renders without clipping at 24×80
-  - Exit is clean (no stale tty state)
-
 ## Medium (a session or two)
 
-- **Self-update signing infrastructure.** The verifier
-  (`pi_update_verify_signature` in `lib/features/update.sh`)
-  supports minisign. What's missing:
-  - Key-publishing workflow (where does the public key live?
-    `share/keys/pi-optimiser.pub` shipped in each release?)
-  - CI release step that signs `pi-optimiser-<tag>.sh` with a
-    project key held offline.
-  - Flip `--require-signature` to **default on** once signing is
-    operational.
+- **`--pin-task <id>=<version>`.** The `--freeze <id>` half of
+  per-task version pinning ships (via `freeze_tasks:` in
+  config.yaml, consulted by `apply_once`). The fetch-historical
+  half is deferred: it needs a per-task version manifest fetched
+  from a tag archive. Useful when a specific task regresses on a
+  specific hardware generation but not a correctness need.
 
-- **Unified-diff dry-run for config.txt / cmdline.txt edits.**
-  The `ensure_config_key_value` helper would need a diff-buffering
-  mode that accumulates proposed writes and prints a unified diff
-  at the end. Touches every config-editing task.
+## Deliberately not planned
 
-- **Per-task version pinning.** `--pin-task <id>=<version>`
-  (fetch a historical task from a tag archive) and
-  `--freeze-task <id>` (never update). Not a correctness need, but
-  useful when a single task regresses on a specific hardware
-  generation. Requires a per-task version manifest fetched from
-  the same repo.
-
-## Low (nice to have)
-
-- **Prometheus metrics export** via node-exporter's textfile
-  collector (count completed/failed/skipped per task, last-run
-  timestamp).
-- **`--watch`** mode: re-run on config.yaml changes via `inotify`.
-- **Dockerised test harness** for CI: a Debian Trixie container
-  with stubbed `vcgencmd` / `rpi-eeprom-config` / `rpi-update` so
-  more of the code paths run under CI than just `shellcheck`.
+- **Self-update signing infrastructure.** The `--require-signature`
+  verifier is shipped and will check a minisign signature if the
+  user opts in and provides their own key. We are not going to
+  produce an official signing pipeline:
+  - For a single-maintainer project, the signing key and the
+    GitHub credentials basically live in the same blast radius.
+    If one is compromised, the other probably is too.
+  - The `curl | sudo bash install.sh` path is unsigned anyway,
+    and it's the more common install mode. Signing the release
+    bundle protects one entrypoint while leaving the more common
+    one exposed.
+  - TLS + pinned-tag + sha256 matches the trust posture of every
+    other `curl | bash` installer on the internet, and that is
+    already what users sign up for when using this project.
+  - Real-world supply-chain incidents (rustup-init, homebrew
+    formulae, event-stream) were CI/build-system compromises
+    that signing wouldn't have prevented.
+  Users who need stricter verification can sign the bundle with
+  their own key and run with `--require-signature`.
 
 ## Resolved (see CHANGELOG.md)
 
+- **9.1.0**: Prometheus textfile metrics, `--watch` mode,
+  `--diff` preview for config.txt/cmdline.txt, `--freeze-task`,
+  Dockerised integration-test harness, bundle parity guard.
 - **9.0.2**: reboot-required surfacing, YAML inline comments,
   stricter `--validate-config`, `--completion`, `--show-config`,
   `--undo --all`, `--self-test`, `--reboot-after`, man page,

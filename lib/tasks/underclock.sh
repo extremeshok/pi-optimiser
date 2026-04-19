@@ -85,3 +85,21 @@ run_underclock() {
     log_info "Underclock profile already present"
   fi
 }
+
+pi_preview_underclock() {
+  [[ ${REQUEST_UNDERCLOCK:-0} -eq 0 ]] && return 0
+  [[ ${REQUEST_OC_CONSERVATIVE:-0} -eq 1 ]] && return 0
+  local -a entries=()
+  if is_pi5; then
+    entries=("arm_freq=1800" "gpu_freq=700")
+  elif is_pi4; then
+    entries=("arm_freq=1200" "gpu_freq=400")
+  elif is_pi3; then
+    entries=("arm_freq=1000" "gpu_freq=300")
+  elif is_pizero2; then
+    entries=("arm_freq=900" "gpu_freq=300")
+  else
+    return 0
+  fi
+  pi_preview_apply_entries "${entries[@]}"
+}

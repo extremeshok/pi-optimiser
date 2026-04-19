@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Stub vcgencmd — returns plausible values for the subcommands that
+# pi-optimiser uses in preflight and --report. No real hardware is
+# inspected.
+case "${1:-}" in
+  get_throttled)        printf 'throttled=0x0\n' ;;
+  measure_temp)         printf "temp=49.4'C\n" ;;
+  measure_clock)
+    case "${2:-}" in
+      arm) printf 'frequency(48)=1500000000\n' ;;
+      *)   printf 'frequency(0)=500000000\n' ;;
+    esac ;;
+  get_config)           printf '# stub\narm_boost=1\n' ;;
+  bootloader_version)   printf '2024/01/01 00:00:00\n' ;;
+  *)                    printf 'vcgencmd: stub (%s)\n' "$*" ;;
+esac
+exit 0

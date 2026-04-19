@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Stub rpi-update — no-op; prints a reassuring line and exits 0.
+printf 'rpi-update: stub (no firmware actually fetched)\n' >&2
+exit 0

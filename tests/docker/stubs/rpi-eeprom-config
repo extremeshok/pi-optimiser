@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Stub rpi-eeprom-config — emits a minimal config and acks --apply.
+case "${1:-}" in
+  --apply)
+    shift
+    printf 'rpi-eeprom-config: stub applied %s\n' "$*" >&2
+    exit 0 ;;
+  --config|'')
+    printf 'BOOT_UART=0\nWAKE_ON_GPIO=1\nBOOT_ORDER=0xf41\nSDRAM_BANKLOW=0\n'
+    exit 0 ;;
+  *)
+    printf 'rpi-eeprom-config: stub received %s\n' "$*" >&2
+    exit 0 ;;
+esac

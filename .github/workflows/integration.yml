@@ -1,0 +1,24 @@
+name: integration
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    name: Docker integration harness
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build test image
+        run: docker build -f tests/docker/Dockerfile -t pi-optimiser-tests:ci .
+
+      - name: Run integration tests
+        run: docker run --rm pi-optimiser-tests:ci

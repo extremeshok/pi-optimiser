@@ -1,5 +1,71 @@
 # Changelog
 
+## 9.1.0 — 2026-04-19
+
+Feature batch closing out the post-9.0 TODO list: Prometheus textfile
+metrics, config-watch mode, config.txt / cmdline.txt diff-preview,
+per-task freeze, and a Dockerised integration-test harness. No
+existing flag semantics changed; every new surface is opt-in.
+
+### Added
+- **Prometheus textfile-collector metrics**
+  ([lib/features/metrics.sh](lib/features/metrics.sh)). After every
+  run, pi-optimiser writes `/var/lib/node_exporter/textfile_collector/
+  pi-optimiser.prom` (if the directory exists) or falls back to
+  `/etc/pi-optimiser/metrics/pi-optimiser.prom`. Emits per-task
+  status, completed/failed/skipped totals, last-run timestamp,
+  reboot-required gauge, and a version-info label. Disable with
+  `--no-metrics` or `metrics.enabled: false` in config.yaml; override
+  the path with `--metrics-path <path>` or `metrics.path: <path>`.
+- **`--watch` mode** ([lib/features/watch.sh](lib/features/watch.sh)).
+  After the initial run, block on `inotifywait` against config.yaml
+  and re-exec on change. Falls back to a 10-second polling loop when
+  `inotify-tools` is absent (warning emitted so the user can
+  `apt install inotify-tools`). A 2 s debounce collapses burst events
+  from editor save-temp renames. Task failures under `--watch` don't
+  kill the watcher.
+- **`--diff` preview mode**
+  ([lib/features/diff.sh](lib/features/diff.sh)). Invokes each
+  config-editing task's `pi_preview_<id>` callback instead of the
+  real runner; `ensure_config_key_value`, `ensure_config_line`, and
+  `cmdline_ensure_token` divert their writes to a per-target scratch
+  buffer. At the end, a unified diff against the current file prints
+  per target. Tasks without a preview callback show as
+  `(no preview available)`. Seven config-editing tasks ship preview
+  callbacks: `boot_config`, `watchdog`, `pcie_gen3`, `pi5_fan`,
+  `thermal_thresholds`, `oc_conservative`, `underclock`.
+- **`--freeze-task <id>`** (repeatable) and YAML `freeze_tasks: [...]`.
+  A frozen task is treated as already-completed by `apply_once` even
+  under `--force`. Useful when a task regresses on a specific
+  hardware generation and the user wants to pin an older version
+  they've already applied.
+- **Dockerised integration-test harness**
+  ([tests/docker/Dockerfile](tests/docker/Dockerfile)). Debian Trixie
+  base with stubs for `vcgencmd`, `rpi-eeprom-config`, `rpi-update`,
+  and `rpi-eeprom-update` so the runtime reaches code paths that
+  shellcheck alone cannot. A new `.github/workflows/integration.yml`
+  builds the image and runs
+  [tests/docker/run-tests.sh](tests/docker/run-tests.sh) on every
+  push — covering `--help`, `--version`, `--list-tasks`,
+  `--list-profiles --output json`, `--self-test`,
+  `--validate-config` (good + bad paths), `--show-config`,
+  `--completion bash/zsh`, `--diff` (no writes to `/boot/firmware`),
+  `--freeze-task`, and the bundle build.
+
+### Changed
+- **`scripts/build-bundle.sh`** now refuses to produce a bundle when
+  files exist in `lib/util/`, `lib/features/`, or `lib/ui/` that
+  aren't listed in its build-order lists (prevents the silent-drop
+  class of bug that caused 9.0.2's completion-feature hotfix).
+
+### Notes
+- The `--diff` helper deliberately seeds its scratch buffer from the
+  real `/boot/firmware/*` files, so chained edits across multiple
+  tasks compound correctly in the previewed output.
+- `--watch` strips itself from the argv re-passed to the child, so
+  `pi-optimiser --watch --yes --profile server` keeps `--yes
+  --profile server` on every re-run without recursing into watch.
+
 ## 9.0.2 — 2026-04-19
 
 Polish batch: reboot-required surfacing, YAML inline-comment

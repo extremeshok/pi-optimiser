@@ -58,3 +58,18 @@ run_boot_config() {
     log_info "Boot config already matched recommended defaults"
   fi
 }
+
+pi_preview_boot_config() {
+  pi_supports_kms_overlays || return 0
+  # Uses ensure_config_line (not key=value) because the boot_config task
+  # matches whole-line entries; ensure_config_key_value only matches by
+  # key. Bypass pi_preview_apply_entries here.
+  local target=${CONFIG_TXT_FILE:-/boot/firmware/config.txt}
+  local entry
+  for entry in \
+    "dtoverlay=vc4-kms-v3d" "gpu_mem=320" "disable_overscan=1" \
+    "hdmi_force_hotplug=1" "framebuffer_depth=32" \
+    "framebuffer_ignore_alpha=1" "dtparam=audio=on" "arm_boost=1"; do
+    ensure_config_line "$entry" "$target" >/dev/null 2>&1 || true
+  done
+}

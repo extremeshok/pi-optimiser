@@ -49,3 +49,9 @@ run_pcie_gen3() {
   fi
   write_json_field "$CONFIG_OPTIMISER_STATE" "hardware.pcie_gen3" "enabled"
 }
+
+pi_preview_pcie_gen3() {
+  [[ ${INSTALL_PCIE_GEN3:-0} -eq 0 ]] && return 0
+  is_pi5 || return 0
+  pi_preview_apply_entries "dtparam=pciex1_gen=3"
+}

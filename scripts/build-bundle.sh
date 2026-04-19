@@ -54,8 +54,31 @@ post = main_text[end + len(marker_end):]
 order_utils = ["log", "python", "state", "backup", "config_txt", "cmdline",
                "fstab", "sshd", "apt", "systemd", "model", "hardware",
                "preflight", "validate", "config_yaml"]
-order_features = ["profiles", "report", "snapshot", "undo", "install", "update", "completion"]
+order_features = ["profiles", "report", "snapshot", "undo", "install", "update", "completion", "metrics", "watch", "diff"]
 order_ui = ["tui"]
+
+# Parity guard: a new file in lib/util/, lib/features/, or lib/ui/ that
+# isn't listed above would silently drop from the bundle and break the
+# single-file release without any test catching it. Fail loudly instead.
+def _check_parity(label, listed, directory):
+    actual = sorted(p.stem for p in directory.glob("*.sh"))
+    missing = sorted(set(actual) - set(listed))
+    extra = sorted(set(listed) - set(actual))
+    errors = []
+    if missing:
+        errors.append(f"{label} has files not listed in build order: {missing}")
+    if extra:
+        errors.append(f"{label} build order references missing files: {extra}")
+    return errors
+
+_parity_errors = []
+_parity_errors += _check_parity("lib/util", order_utils, Path(root_path) / "lib/util")
+_parity_errors += _check_parity("lib/features", order_features, Path(root_path) / "lib/features")
+_parity_errors += _check_parity("lib/ui", order_ui, Path(root_path) / "lib/ui")
+if _parity_errors:
+    for err in _parity_errors:
+        print(f"build-bundle: {err}", file=sys.stderr)
+    sys.exit(1)
 
 parts = []
 parts.append("# --- begin pi-optimiser bundle ---\n")

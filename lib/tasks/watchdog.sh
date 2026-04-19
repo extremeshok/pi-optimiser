@@ -51,3 +51,8 @@ CFG
   log_info "Configured systemd RuntimeWatchdogSec=15; active after reboot"
   write_json_field "$CONFIG_OPTIMISER_STATE" "watchdog.enabled" "true"
 }
+
+pi_preview_watchdog() {
+  [[ ${INSTALL_WATCHDOG:-0} -eq 0 ]] && return 0
+  pi_preview_apply_entries "dtparam=watchdog=on"
+}

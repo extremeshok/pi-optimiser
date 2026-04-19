@@ -3,7 +3,7 @@
 # Coded by Adrian Jon Kriel :: admin@extremeshok.com
 # Project home: https://github.com/extremeshok/pi-optimiser
 # ======================================================================
-# pi-optimiser.sh :: version 9.0.2
+# pi-optimiser.sh :: version 9.1.0
 #======================================================================
 # One-shot optimiser for Raspberry Pi OS desktops. Key capabilities:
 #   - Removes bundled bloatware and trims apt caches for a lean install
@@ -26,7 +26,7 @@ if [[ ${BASH_VERSINFO[0]} -lt 4 ]]; then
 fi
 
 SCRIPT_NAME=$(basename "$0")
-SCRIPT_VERSION="9.0.2"
+SCRIPT_VERSION="9.1.0"
 
 # Globals consumed by sourced lib/util/*.sh modules; shellcheck cannot
 # see across source boundaries so SC2034 would flag them spuriously.
@@ -139,6 +139,20 @@ PI_SHOW_CONFIG=0
 PI_UNDO_ALL=0
 PI_REBOOT_AFTER=""
 PI_SELF_TEST=0
+
+# P6 additions — metrics, watch mode, per-task freeze, diff-preview.
+# shellcheck disable=SC2034  # read by lib/features/metrics.sh
+PI_METRICS_ENABLED=1
+# shellcheck disable=SC2034  # read by lib/features/metrics.sh
+PI_METRICS_PATH=""
+PI_WATCH=0
+# shellcheck disable=SC2034  # populated from config.yaml freeze_tasks
+declare -A PI_FROZEN_TASKS=()
+# shellcheck disable=SC2034  # toggled by --diff; read by config_txt/cmdline helpers
+PI_CONFIG_PREVIEW=0
+PI_DIFF_MODE=0
+# shellcheck disable=SC2034  # buffer directory used by config-preview helpers
+PI_CONFIG_PREVIEW_DIR=""
 
 # shellcheck disable=SC2034  # used by lib/util/* modules
 APT_UPDATED=0
@@ -370,6 +384,11 @@ Options:
   --self-test            Run every task's preconditions read-only and report results
   --reboot-after <mins>  Reboot the Pi <mins> minutes after a successful run
   --keep-screen-blanking Keep default desktop blanking behaviour
+  --watch                Re-run on config.yaml changes (requires inotify-tools)
+  --no-metrics           Skip writing Prometheus textfile-collector metrics
+  --metrics-path <path>  Override Prometheus metrics output path
+  --diff                 Preview proposed config.txt/cmdline.txt changes without writing
+  --freeze-task <id>     Treat <id> as completed even if its version bumps (repeatable)
   --help                 Show this help message and exit
   --version              Print script version and exit
 
@@ -410,7 +429,7 @@ unset _util _util_path
 # is not fatal (older installs) but missing individual files is logged.
 LIB_FEATURES_DIR="$SCRIPT_DIR/lib/features"
 if [[ -d "$LIB_FEATURES_DIR" ]]; then
-  for _feat in profiles report snapshot undo install update completion; do
+  for _feat in profiles report snapshot undo install update completion metrics watch diff; do
     _feat_path="$LIB_FEATURES_DIR/${_feat}.sh"
     if [[ -f "$_feat_path" ]]; then
       # shellcheck source=/dev/null
@@ -464,6 +483,15 @@ apply_once() {
   local runner=${PI_TASK_RUNNER[$task]:-run_$task}
   CURRENT_TASK="$task"
   TASK_SKIP_REASON=""
+  # --freeze-task / config.yaml freeze_tasks: pin a task at its current
+  # recorded version. Even with --force the task is kept frozen — that's
+  # the point; the operator opted out of re-runs for this id. Skipped
+  # entries surface in the summary as "(frozen)".
+  if [[ -n "${PI_FROZEN_TASKS[$task]:-}" ]]; then
+    log_info "Skipping $task (frozen)"
+    SUMMARY_SKIPPED+=("$task (frozen)")
+    return 0
+  fi
   if [[ $FORCE -eq 0 ]] && is_task_done "$task"; then
     log_info "Skipping $task (already completed)"
     SUMMARY_SKIPPED+=("$task (already completed)")
@@ -477,6 +505,19 @@ apply_once() {
     clear_task_state "$task"
   fi
   log_info "Running task $task: $desc"
+  # --diff: invoke the task's preview function (if one exists) to populate
+  # the config-diff buffer, then skip the real runner so no side effects
+  # happen. Tasks without a pi_preview_<id> just show up as preview-only.
+  if [[ ${PI_CONFIG_PREVIEW:-0} -eq 1 ]]; then
+    local _preview_fn="pi_preview_${task}"
+    if declare -F "$_preview_fn" >/dev/null 2>&1; then
+      "$_preview_fn" || true
+      SUMMARY_SKIPPED+=("$task (preview)")
+    else
+      SUMMARY_SKIPPED+=("$task (no preview available)")
+    fi
+    return 0
+  fi
   if [[ $DRY_RUN -eq 1 ]]; then
     # Consult the task's gate_var/skip_var metadata (set by
     # pi_task_register) so dry-run can tell "opt-in not requested" and
@@ -858,6 +899,24 @@ parse_args() {
       --keep-screen-blanking)
         KEEP_SCREEN_BLANKING=1
         ;;
+      --watch)
+        PI_WATCH=1
+        ;;
+      --no-metrics)
+        PI_METRICS_ENABLED=0
+        ;;
+      --metrics-path)
+        if [[ $# -lt 2 ]]; then echo "--metrics-path requires a path" >&2; exit 1; fi
+        PI_METRICS_PATH=$2; shift
+        ;;
+      --diff)
+        PI_DIFF_MODE=1; PI_CONFIG_PREVIEW=1
+        ;;
+      --freeze-task)
+        if [[ $# -lt 2 ]]; then echo "--freeze-task requires a task id" >&2; exit 1; fi
+        if ! [[ $2 =~ ^[a-z0-9_]+$ ]]; then echo "--freeze-task '$2' is not a valid task id" >&2; exit 1; fi
+        PI_FROZEN_TASKS[$2]=1; shift
+        ;;
       --help|-h)
         usage
         exit 0
@@ -997,6 +1056,11 @@ main() {
   PI_RUN_STAMP=$(date -Iseconds)
   export PI_RUN_STAMP
 
+  # Remember the original argv so --watch can strip itself and re-exec
+  # with the same downstream flags.
+  # shellcheck disable=SC2034  # read by lib/features/watch.sh
+  PI_WATCH_ARGV=("$@")
+
   # Capture argv for the TUI gate check (skip the menu when any action
   # flag is explicitly passed).
   # shellcheck disable=SC2034  # read by lib/ui/tui.sh::pi_tui_should_launch
@@ -1043,10 +1107,15 @@ main() {
       continue
     fi
     case "$_arg" in
-      --help|-h|--version|--list-tasks|--list-profiles|--validate-config|--completion|--show-config)
+      --help|-h|--version|--list-tasks|--list-profiles|--validate-config|--completion)
         _pi_info_only=1
         [[ "$_arg" == "--validate-config" ]] && _prev=--validate-config
         [[ "$_arg" == "--completion" ]] && _prev=--completion
+        ;;
+      --show-config)
+        # --show-config wants config.yaml loaded so the output reflects
+        # reality. It still exits before require_root / state-setup, so
+        # no root privileges are needed.
         ;;
       --no-config)  _pi_no_config_early=1 ;;
       --config)     _prev=--config ;;
@@ -1253,6 +1322,12 @@ main() {
     apply_once "$task" || true
   done
   print_run_summary
+  if [[ $PI_DIFF_MODE -eq 1 ]] && declare -F pi_diff_flush >/dev/null 2>&1; then
+    pi_diff_flush
+  fi
+  if declare -F pi_metrics_write >/dev/null 2>&1; then
+    pi_metrics_write || true
+  fi
   log_info "Optimisation run complete"
 
   # Optional post-run auto-reboot (--reboot-after <mins>). Only when
@@ -1269,8 +1344,24 @@ main() {
     fi
   fi
 
+  # Drop the flock before entering --watch: the parent blocks on inotify
+  # and child re-runs need to acquire their own lock. Closing fd 9
+  # releases the advisory lock held by this process.
+  _pi_watch_ready() {
+    [[ "${PI_WATCH:-0}" == "1" ]] && declare -F pi_watch_loop >/dev/null 2>&1
+  }
   if (( ${#SUMMARY_FAILED[@]} > 0 )); then
+    if _pi_watch_ready; then
+      SUMMARY_COMPLETED=() SUMMARY_SKIPPED=() SUMMARY_FAILED=()
+      exec 9>&- 2>/dev/null || true
+      pi_watch_loop || true
+      return 0
+    fi
     exit 1
+  fi
+  if _pi_watch_ready; then
+    exec 9>&- 2>/dev/null || true
+    pi_watch_loop || true
   fi
 }
 

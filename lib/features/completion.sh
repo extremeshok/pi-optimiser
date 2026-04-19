@@ -33,15 +33,21 @@ _pi_optimiser() {
     --zram-algo --temp-limit --temp-soft-limit --initial-turbo
     --wifi-powersave-off --disable-bluetooth --keep-screen-blanking
     --docker-buildx-multiarch --docker-cgroupv2
+    --watch --diff --no-metrics --metrics-path --freeze-task
+    --self-test --show-config --reboot-after
     --completion --help --version
   "
 
   case "$prev" in
-    --only|--skip|--undo)
+    --only|--skip|--undo|--freeze-task)
       local tasks
       tasks=$(pi-optimiser --list-tasks 2>/dev/null \
         | awk 'NR>2 && $1 ~ /^[a-z]/ {print $1}')
       COMPREPLY=( $(compgen -W "$tasks" -- "$cur") )
+      return 0
+      ;;
+    --metrics-path)
+      _filedir
       return 0
       ;;
     --profile)
@@ -111,6 +117,14 @@ _pi_optimiser() {
     '--only[restrict to task]:task:->tasks'
     '--skip[skip a task]:task:->tasks'
     '--zram-algo[ZRAM algorithm]:algo:(lz4 zstd disabled)'
+    '--watch[re-run on config.yaml changes]'
+    '--diff[preview config.txt/cmdline.txt edits]'
+    '--no-metrics[skip Prometheus textfile output]'
+    '--metrics-path[override Prometheus output path]:path:_files'
+    '--freeze-task[treat a task as completed]:task:->tasks'
+    '--self-test[run task preconditions read-only]'
+    '--show-config[print effective config]'
+    '--reboot-after[reboot N minutes post-run]:minutes:'
     '--completion[emit completion script]:shell:(bash zsh)'
     '--help[show help]'
     '--version[show version]'

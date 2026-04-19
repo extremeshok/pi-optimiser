@@ -97,3 +97,22 @@ run_oc_conservative() {
     log_info "Overclock profile already present"
   fi
 }
+
+pi_preview_oc_conservative() {
+  [[ ${REQUEST_OC_CONSERVATIVE:-0} -eq 0 ]] && return 0
+  local -a entries=()
+  if is_pi5; then
+    entries=("over_voltage_delta=30000" "arm_freq=2800" "gpu_freq=950")
+  elif is_pi400; then
+    entries=("arm_freq=2000" "gpu_freq=600")
+  elif is_pi4; then
+    entries=("arm_freq=1750" "gpu_freq=600")
+  elif is_pi3; then
+    entries=("arm_freq=1400" "gpu_freq=500")
+  elif is_pizero2; then
+    entries=("arm_freq=1200" "gpu_freq=500")
+  else
+    return 0
+  fi
+  pi_preview_apply_entries "${entries[@]}"
+}

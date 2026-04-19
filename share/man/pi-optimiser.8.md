@@ -2,7 +2,7 @@
 title: PI-OPTIMISER
 section: 8
 header: System Manager's Manual
-footer: pi-optimiser 9.0.2
+footer: pi-optimiser 9.1.0
 date: 2026-04
 ---
 
@@ -122,6 +122,28 @@ traversal, or escaping symlinks.
 : If any reboot-required task succeeds, schedule a reboot in
 *minutes* via `shutdown -r`.
 
+**--diff**
+: Preview mode. Invokes each config-editing task's preview
+callback, diverts `config.txt` and `cmdline.txt` writes to a
+scratch buffer, and prints a unified diff of every proposed
+change against the current file. No side effects.
+
+**--freeze-task** *id*
+: Treat *id* as already-completed even under `--force`.
+Repeatable. Also settable via `freeze_tasks: [...]` in
+`config.yaml`.
+
+**--watch**
+: After the initial run, block on `inotifywait` against
+`config.yaml` and re-exec on change. Requires `inotify-tools`;
+falls back to a 10-second polling loop when absent. Survives
+task failures; only SIGINT ends the watcher.
+
+**--no-metrics**, **--metrics-path** *path*
+: Skip or relocate the Prometheus textfile-collector output
+(default `/var/lib/node_exporter/textfile_collector/pi-optimiser.prom`
+when that directory exists, else `/etc/pi-optimiser/metrics/pi-optimiser.prom`).
+
 # SELF-UPDATE (opt-in)
 
 **--check-update**
@@ -187,6 +209,11 @@ at `/etc/pi-optimiser/` is preserved.
 
 `/etc/bash_completion.d/pi-optimiser`
 : Bash completion, regenerated on install/update.
+
+`/var/lib/node_exporter/textfile_collector/pi-optimiser.prom`
+: Prometheus metrics (if the directory exists). Fallback path is
+`/etc/pi-optimiser/metrics/pi-optimiser.prom`. Override via
+`--metrics-path`.
 
 # EXIT CODES
 
