@@ -190,6 +190,7 @@ out = []
 i = data.get("integrations", {})
 out.append(f'INSTALL_TAILSCALE={bv(get(i, "tailscale"))}')
 out.append(f'INSTALL_WIREGUARD={bv(get(i, "wireguard"))}')
+out.append(f'ALLOW_BOTH_VPN={bv(get(i, "allow_both_vpn"))}')
 docker = get(i, "docker", default={})
 out.append(f'INSTALL_DOCKER={bv(get(docker, "enabled"))}')
 out.append(f'DOCKER_BUILDX_MULTIARCH={bv(get(docker, "buildx_multiarch"))}')

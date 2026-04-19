@@ -1,5 +1,28 @@
 # Changelog
 
+## 9.1.2 — 2026-04-19
+
+### Changed
+- **Mutex validation is centralised.** Extracted into
+  `pi_validate_mutex` (pi-optimiser.sh) so the CLI path, the
+  config.yaml load path, and the TUI apply step all enforce the
+  same rules. Current mutex pairs:
+  - `overclock_conservative` vs `underclock` — hard conflict
+    (opposing arm_freq / gpu_freq).
+  - `tailscale` vs `wireguard` — hard conflict unless
+    `allow_both_vpn` is true (CLI `--allow-both-vpn` or YAML
+    `integrations.allow_both_vpn: true`).
+  - `install_zram` + `zram_algo: disabled` — soft conflict; the
+    "disabled" branch wins and a warning is printed.
+  Previously the TUI could tick both halves of a mutex and the
+  task loop would run one and awkwardly skip the other with a
+  "conflicts with …" reason. The TUI apply step now catches the
+  conflict up front and shows a dialog pointing at the fix.
+- **`allow_both_vpn` is now a first-class YAML key** under
+  `integrations:`, so operators can pin the decision in
+  `/etc/pi-optimiser/config.yaml` instead of having to pass
+  `--allow-both-vpn` on every run.
+
 ## 9.1.1 — 2026-04-19
 
 Bug-fix pass on 9.1.0 addressing TUI behaviour, Pi 5 display

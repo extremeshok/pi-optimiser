@@ -3,7 +3,7 @@
 # Coded by Adrian Jon Kriel :: admin@extremeshok.com
 # Project home: https://github.com/extremeshok/pi-optimiser
 # ======================================================================
-# pi-optimiser.sh :: version 9.1.1
+# pi-optimiser.sh :: version 9.1.2
 #======================================================================
 # One-shot optimiser for Raspberry Pi OS desktops. Key capabilities:
 #   - Removes bundled bloatware and trims apt caches for a lean install
@@ -26,7 +26,7 @@ if [[ ${BASH_VERSINFO[0]} -lt 4 ]]; then
 fi
 
 SCRIPT_NAME=$(basename "$0")
-SCRIPT_VERSION="9.1.1"
+SCRIPT_VERSION="9.1.2"
 
 # Globals consumed by sourced lib/util/*.sh modules; shellcheck cannot
 # see across source boundaries so SC2034 would flag them spuriously.
@@ -943,28 +943,56 @@ parse_args() {
     shift
   done
 
-  if [[ $INSTALL_ZRAM -eq 1 && $ZRAM_ALGO_OVERRIDE == "disabled" ]]; then
-    echo "pi-optimiser: --install-zram and --zram-algo disabled conflict; the disabled branch wins." >&2
-    echo "  Drop --install-zram if you intend to tear ZRAM down, or drop --zram-algo disabled to install." >&2
-  fi
+  pi_validate_mutex || exit 1
+}
 
-  # Mutually-exclusive VPNs — tailscale runs first in MANIFEST order,
-  # so without this check a user who asked for both would silently get
-  # only tailscale and see a late warning. Fail fast unless the user
-  # explicitly opts into running both.
-  if [[ $INSTALL_TAILSCALE -eq 1 && $INSTALL_WIREGUARD -eq 1 && $ALLOW_BOTH_VPN -eq 0 ]]; then
-    echo "pi-optimiser: --install-tailscale and --install-wireguard both set." >&2
-    echo "  Pass --allow-both-vpn if you really mean to install both." >&2
-    exit 1
-  fi
+# Check mutually-exclusive gate-var combinations. Emits a human-readable
+# error on each conflict found, returning 0 when state is coherent and
+# 1 otherwise. Called from three paths:
+#   - parse_args (CLI flags path — exit 1 on failure)
+#   - main() after config.yaml load (YAML path — exit 1 on failure)
+#   - _pi_tui_apply (interactive path — re-opens the menu on failure)
+# Keep every genuine mutex in here so the three paths stay aligned.
+pi_validate_mutex() {
+  local rc=0
 
-  # Mutually-exclusive OC / underclock — applying both to config.txt
-  # leaves the outcome order-dependent.
-  if [[ $REQUEST_OC_CONSERVATIVE -eq 1 && $REQUEST_UNDERCLOCK -eq 1 ]]; then
-    echo "pi-optimiser: --overclock-conservative and --underclock conflict." >&2
+  # OC vs underclock — both edit arm_freq / gpu_freq in config.txt;
+  # applying both leaves the outcome order-dependent.
+  if [[ ${REQUEST_OC_CONSERVATIVE:-0} -eq 1 && ${REQUEST_UNDERCLOCK:-0} -eq 1 ]]; then
+    echo "pi-optimiser: overclock-conservative and underclock conflict." >&2
     echo "  Pick one; they set opposing arm_freq / gpu_freq values." >&2
-    exit 1
+    rc=1
   fi
+
+  # Tailscale vs WireGuard — both install a default VPN route and
+  # fight over /etc/resolv.conf on some distros. Allow the combo only
+  # when the operator explicitly opts in with --allow-both-vpn.
+  if [[ ${INSTALL_TAILSCALE:-0} -eq 1 && ${INSTALL_WIREGUARD:-0} -eq 1 && ${ALLOW_BOTH_VPN:-0} -eq 0 ]]; then
+    echo "pi-optimiser: tailscale and wireguard both selected." >&2
+    echo "  Pass --allow-both-vpn (CLI) or set allow_both_vpn in config.yaml to run both." >&2
+    rc=1
+  fi
+
+  # CPU governor=performance pinning vs underclock — philosophically
+  # contradictory (the service pins to 'performance' while underclock
+  # flips the live governor to 'powersave' on apply). The underclock
+  # task already backs off when OC is requested; here we warn softly
+  # rather than block, since the user may want the kernel governor
+  # pinned even with a lower ceiling.
+  if [[ ${REQUEST_UNDERCLOCK:-0} -eq 1 ]]; then
+    :  # Reserved: future soft warning hook.
+  fi
+
+  # ZRAM install + zram-algo=disabled — not strictly conflicting (the
+  # disabled branch wins and tears down zram-generator.conf) but worth
+  # a warning so the user isn't surprised.
+  if [[ ${INSTALL_ZRAM:-0} -eq 1 && "${ZRAM_ALGO_OVERRIDE:-}" == "disabled" ]]; then
+    echo "pi-optimiser: install-zram + zram-algo=disabled — the 'disabled' branch wins." >&2
+    echo "  Drop install-zram to tear ZRAM down, or drop zram-algo=disabled to install." >&2
+    # Soft conflict: don't raise rc.
+  fi
+
+  return $rc
 }
 
 # Return success when the given task is flagged power-sensitive in the

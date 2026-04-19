@@ -305,6 +305,17 @@ _pi_tui_apply() {
     _whiptail --msgbox "No tasks selected; nothing to apply." 8 50
     return 0
   fi
+  # Mutex check — same rules as the CLI path (pi_validate_mutex). On
+  # conflict, show the error text and return to the main menu so the
+  # operator can fix the selection instead of losing progress.
+  local mutex_msg
+  if mutex_msg=$(pi_validate_mutex 2>&1); then
+    :
+  else
+    _whiptail --title "Conflicting selections" --msgbox \
+      "The selected tasks conflict.\n\n${mutex_msg}\n\nUncheck one side and try again." 16 72
+    return 0
+  fi
   pi_config_save
   _whiptail --yesno "Apply ${#ONLY_TASKS[@]} selected task(s) now?\n\nConfig saved to /etc/pi-optimiser/config.yaml." 10 60 || return 0
   # Signal main() to fall through and run the loop.
