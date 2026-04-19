@@ -95,13 +95,22 @@ PY
   echo "Installed SHA: ${installed:-<unknown>}"
   if [[ -z "$installed" || "$installed" != "$remote" ]]; then
     echo "Status:        UPDATE AVAILABLE"
-    return 0
+    # Non-zero exit so scripts can `if ! pi-optimiser --check-update;
+    # then pi-optimiser --update; fi` without parsing output.
+    return 10
   fi
   echo "Status:        up to date"
+  return 0
 }
 
 # --update: stage + swap + flip launcher.
 pi_self_update() {
+  if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+    local _remote
+    _remote=$(pi_update_remote_sha 2>/dev/null || echo "<unreachable>")
+    log_info "[dry-run] would self-update to ${_remote} (ref: ${PI_OPTIMISER_REF:-$PI_OPTIMISER_REF_DEFAULT})"
+    return 0
+  fi
   if [[ ${NETWORK_AVAILABLE:-1} -eq 0 ]]; then
     log_error "Network unavailable; cannot self-update"
     return 1
@@ -160,10 +169,16 @@ pi_self_update() {
 
   mkdir -p "$release_dir"
   local item
-  for item in pi-optimiser.sh lib scripts install.sh README.md AGENTS.md LICENSE SECURITY.md; do
+  for item in pi-optimiser.sh lib scripts share install.sh README.md AGENTS.md LICENSE SECURITY.md; do
     [[ -e "$src_root/$item" ]] && cp -a "$src_root/$item" "$release_dir/"
   done
   chmod +x "$release_dir/pi-optimiser.sh" 2>/dev/null || true
+
+  # Keep /etc/logrotate.d/pi-optimiser in sync with the shipped copy.
+  if [[ -f "$release_dir/share/logrotate/pi-optimiser" ]]; then
+    install -m 0644 "$release_dir/share/logrotate/pi-optimiser" \
+      /etc/logrotate.d/pi-optimiser 2>/dev/null || true
+  fi
 
   ln -sfn "$release_dir" "$prefix/current.new"
   mv -Tf "$prefix/current.new" "$prefix/current"
@@ -223,6 +238,10 @@ pi_update_verify_signature() {
 # Install a systemd timer that runs `pi-optimiser --update --yes` on a
 # daily cadence with randomized delay.
 pi_enable_update_timer() {
+  if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+    log_info "[dry-run] would install $PI_UPDATE_TIMER_UNIT (daily + 6h jitter)"
+    return 0
+  fi
   local launcher=${PI_OPTIMISER_BIN:-/usr/local/sbin/pi-optimiser}
   if [[ ! -x "$launcher" && ! -L "$launcher" ]]; then
     log_error "Launcher $launcher missing; run the installer first"
@@ -262,6 +281,10 @@ CFG
 }
 
 pi_disable_update_timer() {
+  if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+    log_info "[dry-run] would disable and remove $PI_UPDATE_TIMER_UNIT"
+    return 0
+  fi
   if unit_exists "$PI_UPDATE_TIMER_UNIT"; then
     systemctl disable --now "$PI_UPDATE_TIMER_UNIT" >/dev/null 2>&1 || true
   fi

@@ -18,7 +18,7 @@ run_fstab() {
     log_info "Root filesystem already has noatime configured"
   else
     backup_file /etc/fstab
-    python3 <<'PY'
+    run_python <<'PY'
 from pathlib import Path
 path = Path('/etc/fstab')
 lines = path.read_text().splitlines()

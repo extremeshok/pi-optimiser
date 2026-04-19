@@ -54,10 +54,3 @@ pi_supports_kms_overlays() {
   esac
 }
 
-# Raspberry Pi models that ship a bootloader EEPROM (Pi 4/400/5/500).
-pi_supports_eeprom() {
-  case ${SYSTEM_PI_GEN:-unknown} in
-    4|5) return 0 ;;
-    *)   return 1 ;;
-  esac
-}

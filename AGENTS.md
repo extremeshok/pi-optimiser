@@ -65,6 +65,27 @@ handles that.
    a standalone file that runs with no filesystem dependency on `lib/`.
    Any new source loop in the entry script needs a corresponding edit
    in the bundler's marker logic.
+7. **Never trust `eval` with user data.** If you have to construct
+   bash from a config, go through Python + `shlex.quote()`, same as
+   `lib/util/config_yaml.sh` does. A single un-quoted `$var` in an
+   `eval` is an RCE.
+8. **Validate every user-controlled string that reaches a URL,
+   filesystem path, or shell-expandable position.** See
+   `lib/util/validate.sh` for the patterns:
+   `validate_hostname`, `validate_timezone`, `validate_https_url`,
+   `validate_proxy_backend_url`, `validate_github_handle`,
+   `validate_task_id`. Add new ones there, keep the signature
+   `validate_X <value>` → 0 on valid, 1 on invalid.
+9. **Tasks that require a reboot must flag it.** The `--report` and
+   post-run summary surfacing is [still TODO](TODO.md); until then
+   mention "Reboot required" explicitly in your `log_info` line.
+10. **Python heredocs go through `run_python`**, not raw
+    `python3 <<'PY'`. `run_python` propagates exit codes and
+    forwards stderr to `log_warn`. The five tasks still using raw
+    `python3` were fixed in 9.0.1; don't regress.
+11. **Feature functions honour `--dry-run`.** Every entry point in
+    `lib/features/*.sh` must early-return with an `[dry-run]
+    would…` log line when `DRY_RUN=1`. No exceptions.
 
 ## Task file anatomy
 

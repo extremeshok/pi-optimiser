@@ -7,7 +7,8 @@ A one-shot hardening and tuning script for **Raspberry Pi OS (Bookworm/Trixie or
 - **Storage longevity** tweaks: aggressive apt hygiene, tmpfs mounts for `/tmp` and `/var/log`, journal rate limits, and pessimistic writeback tuning.
 - **Optional extras** you can add à la carte: compressed ZRAM swap, Tailscale, Docker, per-model overclocking (Pi 5/500 ship at 2.8 GHz), NGINX proxy, kiosk display tuning, bootloader EEPROM tuning, non-interactive `rpi-update`, and SSH hardening with fail2ban.
 - **Runtime tuning** pinned to `performance` via a systemd unit so the CPU governor stays set across reboots.
-- **Auditability**: every task logs to `/var/log/pi-optimiser.log`, state lives in `/etc/pi-optimiser/state`, and backups carry timestamped `.pi-optimiser.*` suffixes.
+- **Auditability**: every task logs to `/var/log/pi-optimiser.log` (rotated weekly), state lives in `/etc/pi-optimiser/state.json` (schema v2, JSON), backups carry timestamped `.pi-optimiser.*` suffixes with `/etc/pi-optimiser/backups/<task>.json` journals for `--undo`, and `--snapshot` captures the full pre-change config tree.
+- **Helpful introspection**: `--list-tasks`, `--list-profiles`, `--status`, `--report`, `--validate-config`, `--check-update`. All accept `--output json` for scripting.
 
 ## Quick Start
 
@@ -39,9 +40,20 @@ Reboot after the first run so mounts, sysctl values, and firmware
 tweaks are applied.
 
 Helpful commands:
-- `sudo ./pi-optimiser.sh --status` – show task history and timestamps.
-- `sudo ./pi-optimiser.sh --list-tasks` – see available tasks.
-- `sudo ./pi-optimiser.sh --dry-run` – preview work without touching the system.
+- `sudo pi-optimiser --status` – show task history, timestamps, and
+  per-task version drift (`CURRENT` vs `RAN`).
+- `sudo pi-optimiser --list-tasks` – see available tasks.
+- `sudo pi-optimiser --list-profiles` – what each profile enables.
+- `sudo pi-optimiser --report` – human-readable overview of system
+  state (hardware, runtime, disk, disabled services, task summary).
+- `sudo pi-optimiser --dry-run --profile server` – preview exactly
+  which tasks would run under a profile, no side effects.
+- `sudo pi-optimiser --check-update` – exit code 10 if an update
+  is available, 0 if you're on the latest master.
+- `sudo pi-optimiser --undo <task>` – restore files the task last
+  modified from its backup journal.
+- `sudo pi-optimiser --snapshot` / `--restore <archive>` – full
+  pre-change config snapshot and rollback.
 
 ## Command-line Flags
 | Flag | Description |
@@ -69,6 +81,23 @@ Helpful commands:
 | `--ssh-import-github <user>` | Append `https://github.com/<user>.keys` to the login user's `authorized_keys`. |
 | `--ssh-import-url <url>` | Append a remote `https://…` key list to the login user's `authorized_keys`. |
 | `--keep-screen-blanking` | Preserve default screen blanking. |
+| `--profile <name>` | Apply a flag bundle: `kiosk` / `server` / `desktop` / `headless-iot`. |
+| `--config <path>` | Load a YAML config first; CLI flags still win. |
+| `--no-config` | Ignore `/etc/pi-optimiser/config.yaml` for this run. |
+| `--list-profiles` | Print built-in profiles (text + `--output json`). |
+| `--validate-config <path>` | Parse-check a YAML config without side effects. |
+| `--report` | Human-readable state overview (text + `--output json`). |
+| `--snapshot` / `--restore <path>` | Tar / untar `/etc/{fstab,hosts,…}` + `/boot/firmware/*`. |
+| `--undo <task>` | Roll back files captured in `<task>`'s backup journal. |
+| `--check-update` | Compare installed vs remote SHA on `master`. Exit 10 if ahead, 0 if synced. |
+| `--update` | Pull the configured ref, verify, atomic-swap `current`, record SHA. |
+| `--enable-update-timer` / `--disable-update-timer` | Opt-in daily systemd timer. |
+| `--require-signature` | Refuse updates without a valid minisign signature (verifier shipped; signing pipeline pending). |
+| `--migrate` / `--uninstall` / `--rollback` | Manage the `/opt/pi-optimiser` install tree. |
+| `--tui` / `--no-tui` | Force or suppress the whiptail menu. |
+| `--yes` / `--non-interactive` | Skip confirmation prompts. |
+| `--output {text,json}` | Machine-readable mode for `--status`, `--report`, `--check-update`, `--list-profiles`. |
+| `--allow-both-vpn` | Allow `--install-tailscale` and `--install-wireguard` together (normally mutex). |
 | `--help` / `--version` | Self-explanatory. |
 
 Combine flags as needed, for example:
@@ -154,6 +183,43 @@ Before tasks run, the script:
 4. Tests network reachability (Google DNS and Cloudflare) to warn about package installs.
 
 Power/thermal blockers skip safety-sensitive tasks (e.g., display tweaks and overclocking).
+
+
+## Concurrency
+
+A single `flock` at `/var/lock/pi-optimiser.lock` serialises runs.
+Two sudo invocations (e.g. a human triggering `--update` while the
+daily timer fires) can't race on `state.json`, the backup journals,
+or `config-optimisations.json`. The second invocation exits with a
+clear error if it can't acquire the lock.
+
+## Security posture
+
+- **Self-update is opt-in.** `pi-optimiser` never reaches out to the
+  network unless you pass `--update`, `--check-update`, or install
+  the optional daily timer via `--enable-update-timer`.
+- **Update integrity.** Tarballs are fetched over HTTPS with
+  `curl -fsSL` (system CA bundle). The staged tree's entry script is
+  run through `bash -n` before the atomic `current` symlink flip,
+  so syntactically-broken updates can't land. Opt-in minisign
+  verification (`--require-signature`) is wired; the corresponding
+  signing workflow is [pending](TODO.md).
+- **Config file safety.** Values from `/etc/pi-optimiser/config.yaml`
+  (and any `--config <path>`) are `shlex.quote()`-ed in the Python
+  emitter before the bash eval. A malicious YAML cannot execute
+  arbitrary shell as root.
+- **Snapshot restore.** `--restore <tarball>` refuses archives that
+  contain absolute paths, `..` traversal, or symlinks whose targets
+  leave the archive.
+- **State file permissions.** `/etc/pi-optimiser/snapshots` and
+  `/etc/pi-optimiser/backups` are `0700`. Individual `.pi-optimiser.*`
+  backups inherit the source file's mode (so `sshd_config` backups
+  stay `0600`).
+- **Trust model.** When you pass `--update`, you are asking
+  pi-optimiser to run code fetched from the GitHub repo. That's the
+  same trust posture as any `curl | sudo bash` installer. Pin
+  `PI_OPTIMISER_REF=v9.0.1` in your environment to freeze the ref,
+  or never enable the update timer.
 
 ## Project Layout
 From 8.0 onwards the tree is:

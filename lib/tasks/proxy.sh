@@ -43,6 +43,16 @@ run_proxy() {
     return 0
   fi
 
+  # Interpolating $PROXY_BACKEND into the nginx proxy_pass directive
+  # is a directive-injection vector if the value contains ';', '{', or
+  # whitespace — nginx would accept trailing directives we never
+  # intended. validate_proxy_backend_url rejects anything that isn't
+  # a well-formed http(s) URL before we write the config.
+  if ! validate_proxy_backend_url "$PROXY_BACKEND"; then
+    log_error "--proxy-backend: '$PROXY_BACKEND' is not a valid http(s) URL"
+    return 1
+  fi
+
   ensure_packages nginx-light
   mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
   if [[ -f "$conf" ]]; then
@@ -88,11 +98,15 @@ server {
 }
 EOF
   local default_link=/etc/nginx/sites-enabled/default
-  local default_target=""
+  local default_target="" default_backup=""
   if [[ -L "$default_link" ]]; then
     default_target=$(readlink "$default_link")
   elif [[ -f "$default_link" ]]; then
-    default_target="$default_link"
+    # Regular file (not a symlink). Stash contents somewhere we can
+    # restore from, since we're about to rm the original.
+    default_backup="${default_link}.pi-optimiser.$(date +%Y%m%d%H%M%S)"
+    cp -a "$default_link" "$default_backup"
+    default_target="regular-file:$default_backup"
   fi
 
   ln -sf "$conf" "$enabled"
@@ -101,12 +115,23 @@ EOF
   if ! nginx -t >/dev/null 2>&1; then
     log_warn "nginx configuration test failed; reverting proxy site"
     rm -f "$enabled"
-    if [[ -n "$default_target" ]]; then
-      ln -sf "$default_target" "$default_link" 2>/dev/null || true
-    fi
+    case "$default_target" in
+      "")                    ;;  # no prior default
+      regular-file:*)
+        # Original was a regular file; move the copied content back.
+        cp -a "${default_target#regular-file:}" "$default_link" 2>/dev/null || true
+        ;;
+      *)
+        ln -sf "$default_target" "$default_link" 2>/dev/null || true
+        ;;
+    esac
     pi_skip_reason "nginx config failed validation"
     return 2
   fi
+
+  # nginx accepted the config — the backup copy of the pre-change
+  # default is no longer needed. Leave it in place so --undo can
+  # restore it if the operator changes their mind later.
 
   systemctl enable --now nginx >/dev/null 2>&1 || log_warn "Unable to enable nginx service"
   systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1 || log_warn "Unable to reload nginx"

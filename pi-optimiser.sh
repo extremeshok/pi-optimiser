@@ -3,7 +3,7 @@
 # Coded by Adrian Jon Kriel :: admin@extremeshok.com
 # Project home: https://github.com/extremeshok/pi-optimiser
 # ======================================================================
-# pi-optimiser.sh :: version 9.0.0
+# pi-optimiser.sh :: version 9.0.1
 #======================================================================
 # One-shot optimiser for Raspberry Pi OS desktops. Key capabilities:
 #   - Removes bundled bloatware and trims apt caches for a lean install
@@ -26,7 +26,7 @@ if [[ ${BASH_VERSINFO[0]} -lt 4 ]]; then
 fi
 
 SCRIPT_NAME=$(basename "$0")
-SCRIPT_VERSION="9.0.0"
+SCRIPT_VERSION="9.0.1"
 
 # Globals consumed by sourced lib/util/*.sh modules; shellcheck cannot
 # see across source boundaries so SC2034 would flag them spuriously.
@@ -132,6 +132,8 @@ PI_FORCE_TUI=0
 PI_NO_TUI=0
 PI_CONFIG_FILE=""
 PI_NO_CONFIG=0
+PI_LIST_PROFILES=0
+PI_VALIDATE_CONFIG_PATH=""
 
 # shellcheck disable=SC2034  # used by lib/util/* modules
 APT_UPDATED=0
@@ -200,6 +202,12 @@ TASK_STATE_VERSION=""
 pi_task_register() {
   local id=$1
   shift
+  # A second registration for the same id would silently override the
+  # first — a paste error in lib/tasks/ could break a task without
+  # anything tripping. Warn so the conflict is visible.
+  if [[ -n "${PI_TASK_DESC[$id]:-}" ]]; then
+    echo "pi-optimiser: duplicate task registration for '$id'; later definition wins" >&2
+  fi
   PI_TASK_DESC[$id]="unknown"
   PI_TASK_CATEGORY[$id]="unknown"
   PI_TASK_VERSION[$id]="1.0.0"
@@ -348,6 +356,8 @@ Options:
   --no-tui               Suppress the interactive menu even on a TTY
   --config <path>        Read a YAML config file; CLI flags still override individual keys
   --no-config            Ignore /etc/pi-optimiser/config.yaml even if present
+  --list-profiles        Print the built-in profiles and what they enable, then exit
+  --validate-config <p>  Check a config.yaml for parse errors, then exit (no side effects)
   --keep-screen-blanking Keep default desktop blanking behaviour
   --help                 Show this help message and exit
   --version              Print script version and exit
@@ -448,7 +458,11 @@ apply_once() {
     SUMMARY_SKIPPED+=("$task (already completed)")
     return 0
   fi
-  if [[ $FORCE -eq 1 ]]; then
+  if [[ $FORCE -eq 1 && $DRY_RUN -eq 0 ]]; then
+    # Under --dry-run, preserving the existing state is essential —
+    # the whole point is that no side effects happen. We still honour
+    # --force enough to let the task "run" (below) so dry-run output
+    # shows what would happen, but we don't mutate state.json.
     clear_task_state "$task"
   fi
   log_info "Running task $task: $desc"
@@ -765,6 +779,11 @@ parse_args() {
         PI_CONFIG_FILE=$2; shift
         ;;
       --no-config)           PI_NO_CONFIG=1 ;;
+      --list-profiles)       PI_LIST_PROFILES=1 ;;
+      --validate-config)
+        if [[ $# -lt 2 ]]; then echo "--validate-config requires a path" >&2; exit 1; fi
+        PI_VALIDATE_CONFIG_PATH=$2; shift
+        ;;
       --report)               PI_REPORT=1 ;;
       --snapshot)             PI_SNAPSHOT_ONLY=1 ;;
       --restore)
@@ -823,6 +842,24 @@ parse_args() {
   if [[ $INSTALL_ZRAM -eq 1 && $ZRAM_ALGO_OVERRIDE == "disabled" ]]; then
     echo "pi-optimiser: --install-zram and --zram-algo disabled conflict; the disabled branch wins." >&2
     echo "  Drop --install-zram if you intend to tear ZRAM down, or drop --zram-algo disabled to install." >&2
+  fi
+
+  # Mutually-exclusive VPNs — tailscale runs first in MANIFEST order,
+  # so without this check a user who asked for both would silently get
+  # only tailscale and see a late warning. Fail fast unless the user
+  # explicitly opts into running both.
+  if [[ $INSTALL_TAILSCALE -eq 1 && $INSTALL_WIREGUARD -eq 1 && $ALLOW_BOTH_VPN -eq 0 ]]; then
+    echo "pi-optimiser: --install-tailscale and --install-wireguard both set." >&2
+    echo "  Pass --allow-both-vpn if you really mean to install both." >&2
+    exit 1
+  fi
+
+  # Mutually-exclusive OC / underclock — applying both to config.txt
+  # leaves the outcome order-dependent.
+  if [[ $REQUEST_OC_CONSERVATIVE -eq 1 && $REQUEST_UNDERCLOCK -eq 1 ]]; then
+    echo "pi-optimiser: --overclock-conservative and --underclock conflict." >&2
+    echo "  Pick one; they set opposing arm_freq / gpu_freq values." >&2
+    exit 1
   fi
 }
 
@@ -945,32 +982,95 @@ main() {
     --profile --config
   )
 
+  # Pre-scan argv for flags that change config-load decisions. We need
+  # to know these BEFORE parse_args so the saved config loads first
+  # (giving CLI flags the final say) and info-only commands skip it
+  # entirely. This is a deliberately lax scan — parse_args does the
+  # strict validation shortly after.
+  local _pi_info_only=0 _pi_no_config_early=0 _pi_cfg_path_early=""
+  local _arg _prev=""
+  for _arg in "$@"; do
+    if [[ "$_prev" == "--config" ]]; then
+      _pi_cfg_path_early=$_arg
+      _prev=""
+      continue
+    fi
+    if [[ "$_prev" == "--validate-config" ]]; then
+      _prev=""
+      continue
+    fi
+    case "$_arg" in
+      --help|-h|--version|--list-tasks|--list-profiles|--validate-config)
+        _pi_info_only=1
+        [[ "$_arg" == "--validate-config" ]] && _prev=--validate-config
+        ;;
+      --no-config)  _pi_no_config_early=1 ;;
+      --config)     _prev=--config ;;
+    esac
+  done
+  unset _arg _prev
+
+  # Load persisted config BEFORE parse_args so CLI flags win. Skipped
+  # entirely for info-only commands (--help, --version, --list-tasks)
+  # and when --no-config is passed.
+  if [[ $_pi_info_only -eq 0 && $_pi_no_config_early -eq 0 ]]; then
+    if [[ -n "$_pi_cfg_path_early" ]]; then
+      pi_config_load "$_pi_cfg_path_early" || true
+    elif [[ -f "${PI_CONFIG_DEFAULT:-/etc/pi-optimiser/config.yaml}" ]]; then
+      pi_config_load "$PI_CONFIG_DEFAULT" || true
+    fi
+  fi
+
   parse_args "$@"
 
   # Tasks must be sourced before --list-tasks so the registry is populated.
   pi_load_tasks
   pi_load_manifest
 
-  # --list-tasks is an info-only command; skip the config-load preamble
-  # so its stdout stays clean for machine parsers.
   if [[ $LIST_TASKS -eq 1 ]]; then
     list_tasks
     exit 0
   fi
-
-  # Now load persisted config (unless --no-config). CLI flags were
-  # already applied by parse_args, so they win over config values for
-  # flags that take an argument. For boolean flags, the config value
-  # is the fallback when the CLI flag wasn't passed.
-  if [[ $PI_NO_CONFIG -eq 0 ]]; then
-    if [[ -n "$PI_CONFIG_FILE" ]]; then
-      pi_config_load "$PI_CONFIG_FILE" || true
-    elif [[ -f "${PI_CONFIG_DEFAULT:-/etc/pi-optimiser/config.yaml}" ]]; then
-      pi_config_load "$PI_CONFIG_DEFAULT" || true
+  # --list-profiles and --validate-config are info-only too; handle them
+  # before state setup so non-root users can introspect without sudo.
+  if [[ $PI_LIST_PROFILES -eq 1 ]]; then
+    if declare -F pi_list_profiles >/dev/null 2>&1; then
+      pi_list_profiles
+    else
+      echo "pi-optimiser: lib/features/profiles.sh missing pi_list_profiles" >&2
+      exit 1
     fi
+    exit 0
   fi
+  if [[ -n "$PI_VALIDATE_CONFIG_PATH" ]]; then
+    if declare -F pi_validate_config >/dev/null 2>&1; then
+      local _rc=0
+      pi_validate_config "$PI_VALIDATE_CONFIG_PATH" || _rc=$?
+      exit $_rc
+    fi
+    echo "pi-optimiser: lib/features/profiles.sh missing pi_validate_config" >&2
+    exit 1
+  fi
+
   require_root
   init_logging
+
+  # Serialize concurrent runs (human + update-timer race) under a
+  # flock. Two mutating invocations would otherwise race on state.json
+  # and the backup journal. --status, --report, --list-tasks,
+  # --check-update are read-only paths; those are checked later and
+  # exit without acquiring the lock. We acquire as early as possible
+  # once we're committed to any side-effecting action.
+  if command -v flock >/dev/null 2>&1; then
+    # shellcheck disable=SC2094  # fd 9 is our lock fd
+    exec 9>/var/lock/pi-optimiser.lock
+    if ! flock -n 9; then
+      log_error "Another pi-optimiser run is in progress (/var/lock/pi-optimiser.lock held)."
+      log_error "If you're sure that's stale, delete it or wait for the other run."
+      exit 1
+    fi
+  fi
+
   trap 'on_err $? $LINENO' ERR
   ensure_marker_store
   load_os_release
@@ -1069,10 +1169,16 @@ main() {
         clear_task_state "$task"
       fi
     fi
-    apply_once "$task"
+    # apply_once returns non-zero on fatal task failure. Under `set -e`
+    # that kills the loop immediately and skips every remaining task.
+    # Capture the rc, keep going, and surface the failure at the end.
+    apply_once "$task" || true
   done
   print_run_summary
   log_info "Optimisation run complete"
+  if (( ${#SUMMARY_FAILED[@]} > 0 )); then
+    exit 1
+  fi
 }
 
 main "$@"

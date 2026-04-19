@@ -8,6 +8,57 @@
 # explicit flag following --profile wins (left-to-right precedence).
 # ======================================================================
 
+# Print every profile alongside what it toggles so users can decide
+# which one to pick. Honours --output json for scriptable consumers.
+pi_list_profiles() {
+  if [[ ${PI_OUTPUT_JSON:-0} -eq 1 ]]; then
+    cat <<'JSON'
+{
+  "profiles": [
+    { "name": "kiosk",        "enables": ["INSTALL_ZRAM", "WIFI_POWERSAVE_OFF", "SECURE_SSH"] },
+    { "name": "server",       "enables": ["INSTALL_ZRAM", "SECURE_SSH", "INSTALL_SMARTMONTOOLS", "INSTALL_NODE_EXPORTER", "ENABLE_DNS_CACHE", "KEEP_SCREEN_BLANKING"] },
+    { "name": "desktop",      "enables": ["INSTALL_CLI_MODERN"] },
+    { "name": "headless-iot", "enables": ["INSTALL_WATCHDOG", "DISABLE_BLUETOOTH", "WIFI_POWERSAVE_OFF", "REQUEST_UNDERCLOCK", "KEEP_SCREEN_BLANKING"] }
+  ]
+}
+JSON
+    return 0
+  fi
+  cat <<'EOF'
+Profiles:
+  kiosk         HDMI kiosk — ZRAM, Wi-Fi never sleeps, SSH hardened.
+  server        Headless server — ZRAM, hardened SSH, smartd,
+                node_exporter, DNS cache. No HDMI (keeps blanking).
+  desktop       GUI Pi — modern CLI bundle; leave swap alone.
+  headless-iot  Zero 2 / Pi 3 class — watchdog, no Bluetooth,
+                Wi-Fi never sleeps, underclock, no HDMI work.
+
+Profiles set flag globals before the rest of parse_args runs, so
+anything specified later on the CLI overrides the profile default.
+EOF
+}
+
+# Validate a config.yaml by loading it into a subshell and checking
+# that the loader returns non-zero or emits no warnings. Separate from
+# pi_config_load so we can short-circuit without touching the live
+# globals in the running process.
+pi_validate_config() {
+  local path=$1
+  if [[ ! -f "$path" ]]; then
+    echo "pi-optimiser: config file not found: $path" >&2
+    return 1
+  fi
+  # Run the loader in a subshell so we don't pollute globals.
+  local rc=0
+  ( pi_config_load "$path" ) >/dev/null 2>&1 || rc=$?
+  if [[ $rc -eq 0 ]]; then
+    echo "Config OK: $path"
+    return 0
+  fi
+  echo "Config validation failed for $path (rc=$rc)" >&2
+  return 1
+}
+
 # shellcheck disable=SC2034  # globals set here are read by lib/tasks/*.sh
 pi_apply_profile() {
   local name=${1,,}

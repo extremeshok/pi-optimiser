@@ -58,7 +58,33 @@ pi_state_schema_version() {
 pi_state_migrate() {
   local current
   current=$(pi_state_schema_version)
+  # Downgrade guard: if a future version wrote state.schema > target,
+  # stop rather than quietly mis-parse newer fields as older.
+  if (( current > PI_STATE_SCHEMA_TARGET )); then
+    log_error "state.schema=v$current is newer than this build's target (v$PI_STATE_SCHEMA_TARGET)."
+    log_error "Refusing to read forward-incompatible state. Either upgrade pi-optimiser"
+    log_error "or move $STATE_JSON_FILE + $STATE_SCHEMA_FILE aside."
+    exit 1
+  fi
   if (( current >= PI_STATE_SCHEMA_TARGET )); then
+    # Defensive: validate state.json is still parseable. A hand-edit
+    # with a trailing comma silently resets everywhere else; we want
+    # a loud warning with the original file preserved.
+    if [[ -f "$STATE_JSON_FILE" ]]; then
+      if ! STATE_JSON_PATH="$STATE_JSON_FILE" run_python <<'PY' >/dev/null 2>&1
+import json, os, sys
+with open(os.environ["STATE_JSON_PATH"]) as fh:
+    json.load(fh)
+PY
+      then
+        local _corrupt
+        _corrupt="${STATE_JSON_FILE}.corrupt-$(date +%Y%m%d%H%M%S)"
+        log_warn "state.json is malformed; moving aside to $_corrupt"
+        mv -f "$STATE_JSON_FILE" "$_corrupt" 2>/dev/null || true
+        echo '{"schema_version": 2, "tasks": {}}' > "$STATE_JSON_FILE"
+        chmod 644 "$STATE_JSON_FILE"
+      fi
+    fi
     return 0
   fi
   log_info "Migrating state schema v$current -> v$PI_STATE_SCHEMA_TARGET"
