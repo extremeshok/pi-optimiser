@@ -90,8 +90,14 @@ fi
 pass "--diff leaves /boot/firmware untouched"
 
 step "--freeze-task consulted by apply_once"
-if ! "$BIN" --dry-run --freeze-task fstab 2>&1 | grep -q 'fstab (frozen)'; then
+# Capture the full output instead of piping into grep -q. With
+# pipefail, grep's early-exit on first match closes the pipe, the
+# producer's subsequent log writes take SIGPIPE (rc 141), and the
+# pipeline rc becomes non-zero even though the match succeeded.
+freeze_out=$("$BIN" --dry-run --freeze-task fstab 2>&1 || true)
+if [[ "$freeze_out" != *"fstab (frozen)"* ]]; then
   printf 'FAIL  expected "fstab (frozen)" in output\n' >&2
+  printf '%s\n' "$freeze_out" | tail -40 >&2
   exit 1
 fi
 pass "--freeze-task"
@@ -107,7 +113,8 @@ step "bundle: build + bash -n + --version"
 scripts/build-bundle.sh /tmp/bundle.sh
 bash -n /tmp/bundle.sh
 /tmp/bundle.sh --version >/dev/null
-/tmp/bundle.sh --list-tasks | wc -l | grep -qv '^0$'
+bundle_task_lines=$(/tmp/bundle.sh --list-tasks | wc -l)
+(( bundle_task_lines > 0 ))
 pass "bundle"
 
 printf '\nAll integration checks passed.\n'
