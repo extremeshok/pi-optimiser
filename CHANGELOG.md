@@ -1,5 +1,41 @@
 # Changelog
 
+## 9.1.1 — 2026-04-19
+
+Bug-fix pass on 9.1.0 addressing TUI behaviour, Pi 5 display
+defaults, and usage text.
+
+### Fixed
+- **TUI selections now actually run.** Previously ticking a task in
+  the TUI added it to `ONLY_TASKS` but didn't flip the task's
+  `gate_var`; every task would then self-skip with
+  `(not requested)`. `_pi_tui_apply` now sets the gate_var to `1`
+  for every selected task (string-valued gates — hostname,
+  timezone, locale, proxy, ssh_import — are still set via the
+  Values forms menu).
+- **boot_config task no longer sets Pi-4-only keys on Pi 5.**
+  `gpu_mem`, `arm_boost`, `framebuffer_depth`, and
+  `framebuffer_ignore_alpha` are legacy/firmware-framebuffer knobs
+  that the Pi 5 firmware ignores (unified memory, always-rated
+  clock, KMS-only). The shared entry list is now assembled by
+  `_boot_config_entries` so `run_boot_config` and
+  `pi_preview_boot_config` stay in sync. Pi 4 / Pi 3 / Zero 2
+  behaviour is unchanged.
+- **Usage line displays the right invocation form.** After
+  `install.sh` the launcher sits at `/usr/local/sbin/pi-optimiser`;
+  `--help` now prints `Usage: sudo pi-optimiser [options]` instead
+  of the misleading `./pi-optimiser`. Running from a checkout still
+  shows `./pi-optimiser.sh`.
+
+### Docker CI
+- Docker integration harness was aborting on a stale
+  `grep -q 'profile:'` assertion (text-mode `--show-config` uses
+  `PI_PROFILE`, not `profile:`). The test now checks for stable
+  section headers in text mode and asserts the new top-level keys
+  (`metrics`, `freeze_tasks`, `integrations`) in JSON mode.
+- `actions/checkout` bumped to `@v5` across all workflows to
+  silence the Node 20 deprecation warning.
+
 ## 9.1.0 — 2026-04-19
 
 Feature batch closing out the post-9.0 TODO list: Prometheus textfile

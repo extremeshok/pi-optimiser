@@ -3,7 +3,7 @@
 # Coded by Adrian Jon Kriel :: admin@extremeshok.com
 # Project home: https://github.com/extremeshok/pi-optimiser
 # ======================================================================
-# pi-optimiser.sh :: version 9.1.0
+# pi-optimiser.sh :: version 9.1.1
 #======================================================================
 # One-shot optimiser for Raspberry Pi OS desktops. Key capabilities:
 #   - Removes bundled bloatware and trims apt caches for a lean install
@@ -26,7 +26,7 @@ if [[ ${BASH_VERSINFO[0]} -lt 4 ]]; then
 fi
 
 SCRIPT_NAME=$(basename "$0")
-SCRIPT_VERSION="9.1.0"
+SCRIPT_VERSION="9.1.1"
 
 # Globals consumed by sourced lib/util/*.sh modules; shellcheck cannot
 # see across source boundaries so SC2034 would flag them spuriously.
@@ -314,8 +314,18 @@ pi_load_manifest() {
 
 # Print command usage information.
 usage() {
+  # When $0 starts with `./` the user invoked a checkout directly, so
+  # keep the `./` prefix in the usage line. An absolute path (launcher
+  # symlink, e.g. /usr/local/sbin/pi-optimiser) or a bare name means
+  # pi-optimiser is installed — display just the command name.
+  local invoke
+  if [[ "$0" == ./* ]]; then
+    invoke="./$SCRIPT_NAME"
+  else
+    invoke="$SCRIPT_NAME"
+  fi
   cat <<USAGE
-Usage: sudo ./$SCRIPT_NAME [options]
+Usage: sudo $invoke [options]
 
 Options:
   --force                Re-run tasks even if already completed

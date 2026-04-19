@@ -16,6 +16,30 @@ pi_task_register boot_config \
   power_sensitive=1 \
   reboot_required=1
 
+# Shared list of config.txt entries that apply to every KMS-capable Pi
+# (Pi 4 and Pi 5). Assembled by _boot_config_entries so run + preview
+# stay in sync; Pi-4-only entries are appended when the model matches.
+_boot_config_entries() {
+  local -a entries=(
+    "dtoverlay=vc4-kms-v3d"
+    "disable_overscan=1"
+    "hdmi_force_hotplug=1"
+    "dtparam=audio=on"
+  )
+  # Pi 5 uses unified memory (gpu_mem ignored), runs at rated clock
+  # (arm_boost no-op), and ships KMS-only (legacy framebuffer_* keys
+  # have no effect). Keep these on Pi 4 and older only.
+  if ! is_pi5; then
+    entries+=(
+      "gpu_mem=320"
+      "framebuffer_depth=32"
+      "framebuffer_ignore_alpha=1"
+      "arm_boost=1"
+    )
+  fi
+  printf '%s\n' "${entries[@]}"
+}
+
 run_boot_config() {
   if ! pi_supports_kms_overlays; then
     log_info "Skipping boot config tuning (model ${SYSTEM_MODEL:-unknown} does not support vc4-kms presets)"
@@ -27,16 +51,8 @@ run_boot_config() {
     return 0
   fi
   backup_file "$CONFIG_TXT_FILE"
-  local -a entries=(
-    "dtoverlay=vc4-kms-v3d"
-    "gpu_mem=320"
-    "disable_overscan=1"
-    "hdmi_force_hotplug=1"
-    "framebuffer_depth=32"
-    "framebuffer_ignore_alpha=1"
-    "dtparam=audio=on"
-    "arm_boost=1"
-  )
+  local -a entries=()
+  mapfile -t entries < <(_boot_config_entries)
   local applied=0
   local entry rc safe_key
   for entry in "${entries[@]}"; do
@@ -61,15 +77,9 @@ run_boot_config() {
 
 pi_preview_boot_config() {
   pi_supports_kms_overlays || return 0
-  # Uses ensure_config_line (not key=value) because the boot_config task
-  # matches whole-line entries; ensure_config_key_value only matches by
-  # key. Bypass pi_preview_apply_entries here.
   local target=${CONFIG_TXT_FILE:-/boot/firmware/config.txt}
   local entry
-  for entry in \
-    "dtoverlay=vc4-kms-v3d" "gpu_mem=320" "disable_overscan=1" \
-    "hdmi_force_hotplug=1" "framebuffer_depth=32" \
-    "framebuffer_ignore_alpha=1" "dtparam=audio=on" "arm_boost=1"; do
+  while IFS= read -r entry; do
     ensure_config_line "$entry" "$target" >/dev/null 2>&1 || true
-  done
+  done < <(_boot_config_entries)
 }

@@ -280,14 +280,26 @@ _pi_tui_forms_menu() {
 }
 
 _pi_tui_apply() {
-  # Translate the checklist selection into --only arguments for the
-  # existing run loop. Tasks not ticked are filtered out.
+  # Translate the checklist selection into --only + gate-variable flips.
+  # Without the flips, each task's own gate_var check (e.g.
+  # `[[ $INSTALL_TAILSCALE -eq 1 ]]`) would still see 0 and skip the
+  # task with "not requested" — the exact bug a TUI is meant to avoid.
+  # Value-typed gate_vars (hostnames, timezones, URLs) are set via the
+  # "values" forms menu; we never coerce them to "1".
   ONLY_TASKS=()
-  local tid
+  local tid gate
   for tid in "${PI_TASK_ORDER[@]}"; do
-    if [[ -n "${PI_TUI_SELECTED[$tid]:-}" ]]; then
-      ONLY_TASKS+=("$tid")
-    fi
+    [[ -n "${PI_TUI_SELECTED[$tid]:-}" ]] || continue
+    ONLY_TASKS+=("$tid")
+    gate=${PI_TASK_GATE_VAR[$tid]:-}
+    case $gate in
+      ""|REQUESTED_HOSTNAME|REQUESTED_TIMEZONE|REQUESTED_LOCALE|PROXY_BACKEND|SSH_IMPORT_GITHUB|SSH_IMPORT_URL)
+        : # No gate_var, or a string-valued gate set via the forms menu.
+        ;;
+      *)
+        printf -v "$gate" '%s' 1
+        ;;
+    esac
   done
   if (( ${#ONLY_TASKS[@]} == 0 )); then
     _whiptail --msgbox "No tasks selected; nothing to apply." 8 50
