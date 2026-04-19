@@ -139,6 +139,21 @@ _pi_tui_welcome() {
   fi
 }
 
+# Return 0 when the task's gate_var is set to an "enabled" value. Used
+# by the category checklist to pre-tick items the operator opted into
+# on a previous run (loaded from config.yaml) or via a CLI flag on
+# this invocation. Handles both binary (INSTALL_TAILSCALE=1) and
+# string (REQUESTED_HOSTNAME=pi5) gates.
+_pi_tui_gate_active() {
+  local gate=${PI_TASK_GATE_VAR[$1]:-}
+  [[ -z "$gate" ]] && return 1
+  local val=${!gate:-}
+  case $val in
+    ""|0) return 1 ;;
+    *)    return 0 ;;
+  esac
+}
+
 # Build a whiptail checklist for a category of tasks. Arguments:
 #   $1 — category name (matches PI_TASK_CATEGORY values)
 #   $2 — screen title
@@ -171,6 +186,13 @@ _pi_tui_category() {
     fi
     if [[ -n "${PI_TUI_SELECTED[$tid]:-}" ]]; then
       on=ON
+    elif _pi_tui_gate_active "$tid"; then
+      # Gate variable says "enabled" — either from config.yaml (the
+      # user opted in on a previous run) or from a CLI flag on this
+      # invocation. Pre-tick so the operator sees their prior choices
+      # reflected and can confirm-or-change without re-selecting from
+      # scratch. Applies whether or not the task has already run.
+      on=ON
     elif [[ ${PI_TASK_DEFAULT[$tid]:-1} == "1" && $already_done -eq 0 ]]; then
       on=ON
     else
@@ -187,6 +209,11 @@ _pi_tui_category() {
     $PI_WHIP_HEIGHT $PI_WHIP_WIDTH $PI_WHIP_MENU_ROWS \
     "${items[@]}" \
     3>&1 1>&2 2>&3) || return 0
+  # Remember that this category was visited. _pi_tui_apply clears gates
+  # only for visited categories, so un-ticking an item actually shrinks
+  # the applied set — without wiping state for categories the operator
+  # never opened.
+  PI_TUI_VISITED_CATEGORIES[$category]=1
   # Clear existing selections in this category.
   local id
   for id in "${PI_TASK_ORDER[@]}"; do
@@ -323,8 +350,24 @@ _pi_tui_apply() {
   # task with "not requested" — the exact bug a TUI is meant to avoid.
   # Value-typed gate_vars (hostnames, timezones, URLs) are set via the
   # "values" forms menu; we never coerce them to "1".
-  ONLY_TASKS=()
   local tid gate
+  # For every category the operator visited, reset that category's
+  # binary gates to 0 first. Ticked items in the loop below then
+  # flip back to 1. Un-visited categories keep their state so
+  # saving YAML after a narrow edit doesn't clobber prior opt-ins.
+  for tid in "${PI_TASK_ORDER[@]}"; do
+    [[ -n "${PI_TUI_VISITED_CATEGORIES[${PI_TASK_CATEGORY[$tid]}]:-}" ]] || continue
+    gate=${PI_TASK_GATE_VAR[$tid]:-}
+    case $gate in
+      ""|REQUESTED_HOSTNAME|REQUESTED_TIMEZONE|REQUESTED_LOCALE|PROXY_BACKEND|SSH_IMPORT_GITHUB|SSH_IMPORT_URL)
+        : # No gate or value-typed — don't reset.
+        ;;
+      *)
+        printf -v "$gate" '%s' 0
+        ;;
+    esac
+  done
+  ONLY_TASKS=()
   for tid in "${PI_TASK_ORDER[@]}"; do
     [[ -n "${PI_TUI_SELECTED[$tid]:-}" ]] || continue
     ONLY_TASKS+=("$tid")
@@ -368,6 +411,7 @@ pi_tui_main() {
   fi
   pi_tui_resize
   declare -gA PI_TUI_SELECTED=()
+  declare -gA PI_TUI_VISITED_CATEGORIES=()
   PI_TUI_READY_TO_RUN=0
 
   _pi_tui_welcome
