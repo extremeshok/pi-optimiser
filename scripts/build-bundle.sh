@@ -54,7 +54,7 @@ post = main_text[end + len(marker_end):]
 order_utils = ["log", "python", "state", "backup", "config_txt", "cmdline",
                "fstab", "sshd", "apt", "systemd", "model", "hardware",
                "preflight", "validate", "config_yaml"]
-order_features = ["profiles", "report", "snapshot", "undo", "install", "update"]
+order_features = ["profiles", "report", "snapshot", "undo", "install", "update", "completion"]
 order_ui = ["tui"]
 
 parts = []
