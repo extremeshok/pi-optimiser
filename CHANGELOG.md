@@ -1,5 +1,74 @@
 # Changelog
 
+## 9.0.2 — 2026-04-19
+
+Polish batch: reboot-required surfacing, YAML inline-comment
+handling, stricter `--validate-config`, shell completion, installer
+hygiene, and seven new introspection/maintenance flags. No
+functional regressions; task registry unchanged.
+
+### Added
+- **Reboot-required surfacing**. Tasks that mutate
+  `/boot/firmware/*` or EEPROM/firmware declare `reboot_required=1`
+  in their `pi_task_register` call (11 tasks:
+  `boot_config`, `libliftoff`, `oc_conservative`, `underclock`,
+  `pi5_fan`, `pcie_gen3`, `thermal_thresholds`, `watchdog`,
+  `eeprom_config`, `eeprom_refresh`, `firmware_update`). Docker's
+  `--docker-cgroupv2` sub-option flags it inline. `apply_once`
+  writes the flag into `CONFIG_OPTIMISER_STATE`; the post-run
+  summary and `--report` (text + JSON) surface it prominently.
+- **`--completion {bash,zsh}`** emits a completion script on
+  stdout. The installer and updater drop the bash completion into
+  `/etc/bash_completion.d/pi-optimiser`. Completes task IDs after
+  `--only` / `--skip` / `--undo`, profile names after `--profile`,
+  `text`/`json` after `--output`, paths after `--config` /
+  `--restore` / `--validate-config`, shells after `--completion`.
+- **`--show-config`** dumps the effective config (CLI + YAML +
+  defaults) to stdout in a human-readable table. Useful for
+  debugging profile / config precedence. Honours `--output json`.
+- **`--undo --all`** rolls back every task that has a backup
+  journal, newest-first. Skipped with a prompt unless `--yes`.
+- **`--self-test`** runs every task's hardware + binary-availability
+  preconditions read-only and prints a pass/skip table. No side
+  effects; safe on production.
+- **`--reboot-after <minutes>`** schedules `shutdown -r +<mins>`
+  after a successful run, but only when a reboot-required task
+  actually completed.
+- **Man page**. `share/man/pi-optimiser.8.md` ships in the tree;
+  installer/updater compiles it to `/usr/local/share/man/man8/
+  pi-optimiser.8.gz` when `pandoc` is available (silently skipped
+  otherwise). `man pi-optimiser` then just works.
+- **JSON schema docs** under `docs/json-output.md` covering
+  `--status`, `--report`, `--check-update`, `--list-profiles`, and
+  `--show-config`.
+- **YAML inline comments**. `key: value  # comment` now parses as
+  `key: value`; double-quoted values keep any `#` they contain.
+- **TUI `TERM=dumb` guard**. `pi_tui_available` now refuses to
+  launch whiptail on a non-capable terminal, falling back to
+  plain-stdout mode.
+
+### Fixed
+- `--validate-config` on a non-YAML file (e.g. `/etc/hosts`) no
+  longer returns "Config OK". A recognised top-level key
+  (`version`, `profile`, `integrations`, `hardware`, `firmware`,
+  `security`, `system`) must be present.
+- `install.sh` no longer prints a spurious `curl: (22) 404` when
+  the ref is a tag (previously tried `refs/heads/` first and fell
+  back to `refs/tags/`). Now tries tags first, errors silenced.
+- `--restore` now rotates `/etc/pi-optimiser/backups/` aside to
+  `backups.pre-restore-<ts>/` so a subsequent `--undo` doesn't
+  undo the restore itself.
+- The single-file release bundle now refuses `--migrate` and
+  `--update` with a clear message (both require the multi-file
+  install). `PI_OPTIMISER_BUNDLED` is no longer dead code.
+
+### Security
+- No new vectors discovered. The YAML shlex-quote fix from 9.0.1
+  now also covers the inline-comment path (values are still
+  quoted before eval).
+
+---
+
 ## 9.0.1 — 2026-04-19
 
 Second-pass audit hardening on top of the 9.0.0 refactor. Three

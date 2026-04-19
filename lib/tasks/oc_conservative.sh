@@ -7,6 +7,7 @@
 # power_sensitive: 1
 # flags: --overclock-conservative
 # gate_var: REQUEST_OC_CONSERVATIVE
+# reboot_required: true
 # <<< pi-task
 
 pi_task_register oc_conservative \
@@ -16,7 +17,8 @@ pi_task_register oc_conservative \
   default_enabled=0 \
   power_sensitive=1 \
   flags="--overclock-conservative" \
-  gate_var=REQUEST_OC_CONSERVATIVE
+  gate_var=REQUEST_OC_CONSERVATIVE \
+  reboot_required=1
 
 run_oc_conservative() {
   if [[ $REQUEST_OC_CONSERVATIVE -eq 0 ]]; then

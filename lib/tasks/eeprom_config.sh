@@ -5,6 +5,7 @@
 # category: firmware-eeprom
 # default_enabled: 1
 # power_sensitive: 1
+# reboot_required: true
 # <<< pi-task
 
 pi_task_register eeprom_config \
@@ -12,7 +13,8 @@ pi_task_register eeprom_config \
   category=firmware-eeprom \
   version=1.2.0 \
   default_enabled=1 \
-  power_sensitive=1
+  power_sensitive=1 \
+  reboot_required=1
 
 run_eeprom_config() {
   if ! command -v rpi-eeprom-config >/dev/null 2>&1; then

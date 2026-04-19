@@ -113,7 +113,10 @@ EOF
       local rc=0
       cmdline_ensure_token "systemd.unified_cgroup_hierarchy=1" "$CMDLINE_FILE" || rc=$?
       case $rc in
-        0) log_info "docker: cgroup v2 enabled in $CMDLINE_FILE (active after reboot)" ;;
+        0)
+          log_info "docker: cgroup v2 enabled in $CMDLINE_FILE (active after reboot)"
+          pi_mark_reboot_required "docker:cgroupv2"
+          ;;
         1) log_info "docker: cgroup v2 already enabled" ;;
         *) log_warn "docker: failed to update $CMDLINE_FILE for cgroup v2" ;;
       esac

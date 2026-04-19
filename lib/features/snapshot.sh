@@ -137,6 +137,17 @@ pi_restore_snapshot() {
     return 1
   fi
 
+  # Backup journals from before the restore are now stale — they
+  # reference backup paths the restore overwrote, and `--undo` would
+  # effectively undo the restore. Rename the journals dir aside so
+  # subsequent `--undo` exits with a clean "no journal" message.
+  if [[ -d "$MARKER_DIR/backups" ]]; then
+    local stale
+    stale="$MARKER_DIR/backups.pre-restore-$(date +%Y%m%d%H%M%S)"
+    mv -f "$MARKER_DIR/backups" "$stale" 2>/dev/null \
+      && log_info "Stepped stale backup journals aside at $stale"
+  fi
+
   log_info "Extracting snapshot onto the live filesystem"
   # --no-same-owner prevents chown forgery; --no-absolute-names is a
   # belt on top of the pre-scan since GNU tar already strips leading /;

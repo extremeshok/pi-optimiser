@@ -3,7 +3,7 @@
 # Coded by Adrian Jon Kriel :: admin@extremeshok.com
 # Project home: https://github.com/extremeshok/pi-optimiser
 # ======================================================================
-# pi-optimiser.sh :: version 9.0.1
+# pi-optimiser.sh :: version 9.0.2
 #======================================================================
 # One-shot optimiser for Raspberry Pi OS desktops. Key capabilities:
 #   - Removes bundled bloatware and trims apt caches for a lean install
@@ -26,7 +26,7 @@ if [[ ${BASH_VERSINFO[0]} -lt 4 ]]; then
 fi
 
 SCRIPT_NAME=$(basename "$0")
-SCRIPT_VERSION="9.0.1"
+SCRIPT_VERSION="9.0.2"
 
 # Globals consumed by sourced lib/util/*.sh modules; shellcheck cannot
 # see across source boundaries so SC2034 would flag them spuriously.
@@ -134,6 +134,11 @@ PI_CONFIG_FILE=""
 PI_NO_CONFIG=0
 PI_LIST_PROFILES=0
 PI_VALIDATE_CONFIG_PATH=""
+PI_COMPLETION_SHELL=""
+PI_SHOW_CONFIG=0
+PI_UNDO_ALL=0
+PI_REBOOT_AFTER=""
+PI_SELF_TEST=0
 
 # shellcheck disable=SC2034  # used by lib/util/* modules
 APT_UPDATED=0
@@ -183,7 +188,7 @@ declare -a SUMMARY_FAILED=()
 declare -A PI_TASK_DESC=() PI_TASK_CATEGORY=() PI_TASK_VERSION=() \
           PI_TASK_FLAGS=() PI_TASK_POWER_SENSITIVE=() PI_TASK_DEFAULT=() \
           PI_TASK_GATE_FLAG=() PI_TASK_GATE_VAR=() PI_TASK_SKIP_VAR=() \
-          PI_TASK_RUNNER=()
+          PI_TASK_REBOOT_REQUIRED=() PI_TASK_RUNNER=()
 declare -a PI_TASK_ORDER=()
 
 TASK_SKIP_REASON=""
@@ -229,6 +234,7 @@ pi_task_register() {
       gate_flag)       PI_TASK_GATE_FLAG[$id]=$value ;;
       gate_var)        PI_TASK_GATE_VAR[$id]=$value ;;
       skip_var)        PI_TASK_SKIP_VAR[$id]=$value ;;
+      reboot_required) PI_TASK_REBOOT_REQUIRED[$id]=$value ;;
       default_enabled) PI_TASK_DEFAULT[$id]=$value ;;
       power_sensitive) PI_TASK_POWER_SENSITIVE[$id]=$value ;;
       runner)          PI_TASK_RUNNER[$id]=$value ;;
@@ -358,6 +364,11 @@ Options:
   --no-config            Ignore /etc/pi-optimiser/config.yaml even if present
   --list-profiles        Print the built-in profiles and what they enable, then exit
   --validate-config <p>  Check a config.yaml for parse errors, then exit (no side effects)
+  --completion <shell>   Emit a completion script for {bash,zsh} on stdout and exit
+  --show-config          Print the effective config (CLI + YAML + defaults) and exit
+  --undo --all           Roll back every task completed in the most recent run
+  --self-test            Run every task's preconditions read-only and report results
+  --reboot-after <mins>  Reboot the Pi <mins> minutes after a successful run
   --keep-screen-blanking Keep default desktop blanking behaviour
   --help                 Show this help message and exit
   --version              Print script version and exit
@@ -399,7 +410,7 @@ unset _util _util_path
 # is not fatal (older installs) but missing individual files is logged.
 LIB_FEATURES_DIR="$SCRIPT_DIR/lib/features"
 if [[ -d "$LIB_FEATURES_DIR" ]]; then
-  for _feat in profiles report snapshot undo install update; do
+  for _feat in profiles report snapshot undo install update completion; do
     _feat_path="$LIB_FEATURES_DIR/${_feat}.sh"
     if [[ -f "$_feat_path" ]]; then
       # shellcheck source=/dev/null
@@ -499,6 +510,11 @@ apply_once() {
       set_task_state "$task" "completed" "$desc"
       log_info "Completed task $task"
       SUMMARY_COMPLETED+=("$task")
+      # Tasks that edit /boot/firmware/* or firmware/EEPROM flag the
+      # run as needing a reboot via the `reboot_required=1` metadata.
+      if [[ ${PI_TASK_REBOOT_REQUIRED[$task]:-0} == "1" ]]; then
+        pi_mark_reboot_required "$task"
+      fi
       ;;
     2)
       local reason=${TASK_SKIP_REASON:-"$task (task skipped)"}
@@ -606,6 +622,10 @@ print_run_summary() {
   fi
   if ((${#PRECHECK_WARNINGS[@]} > 0)); then
     log_warn "  preflight warnings: ${PRECHECK_WARNINGS[*]}"
+  fi
+  if declare -F pi_reboot_required >/dev/null 2>&1 && pi_reboot_required; then
+    log_warn "  >>> REBOOT REQUIRED: one or more tasks changed boot/firmware config <<<"
+    log_warn "      Reboot the Pi when convenient for the changes to take effect."
   fi
 }
 
@@ -784,6 +804,17 @@ parse_args() {
         if [[ $# -lt 2 ]]; then echo "--validate-config requires a path" >&2; exit 1; fi
         PI_VALIDATE_CONFIG_PATH=$2; shift
         ;;
+      --completion)
+        if [[ $# -lt 2 ]]; then echo "--completion requires a shell (bash|zsh)" >&2; exit 1; fi
+        PI_COMPLETION_SHELL=$2; shift
+        ;;
+      --show-config)         PI_SHOW_CONFIG=1 ;;
+      --self-test)           PI_SELF_TEST=1 ;;
+      --reboot-after)
+        if [[ $# -lt 2 ]]; then echo "--reboot-after requires a minute count" >&2; exit 1; fi
+        if ! [[ $2 =~ ^[0-9]+$ ]]; then echo "--reboot-after expects an integer (minutes)" >&2; exit 1; fi
+        PI_REBOOT_AFTER=$2; shift
+        ;;
       --report)               PI_REPORT=1 ;;
       --snapshot)             PI_SNAPSHOT_ONLY=1 ;;
       --restore)
@@ -791,8 +822,13 @@ parse_args() {
         PI_RESTORE_PATH=$2; shift
         ;;
       --undo)
-        if [[ $# -lt 2 ]]; then echo "--undo requires a task id" >&2; exit 1; fi
-        PI_UNDO_TASK=$2; shift
+        if [[ $# -lt 2 ]]; then echo "--undo requires a task id or --all" >&2; exit 1; fi
+        if [[ "$2" == "--all" ]]; then
+          PI_UNDO_ALL=1
+        else
+          PI_UNDO_TASK=$2
+        fi
+        shift
         ;;
       --profile)
         if [[ $# -lt 2 ]]; then echo "--profile requires a name" >&2; exit 1; fi
@@ -995,17 +1031,26 @@ main() {
       _prev=""
       continue
     fi
-    if [[ "$_prev" == "--validate-config" ]]; then
+    if [[ "$_prev" == "--validate-config" || "$_prev" == "--completion" ]]; then
+      _prev=""
+      continue
+    fi
+    # Pre-set PI_OUTPUT_JSON so the config-load log line routes to
+    # stderr instead of polluting a JSON stdout stream.
+    if [[ "$_prev" == "--output" ]]; then
+      case "${_arg,,}" in json) PI_OUTPUT_JSON=1 ;; esac
       _prev=""
       continue
     fi
     case "$_arg" in
-      --help|-h|--version|--list-tasks|--list-profiles|--validate-config)
+      --help|-h|--version|--list-tasks|--list-profiles|--validate-config|--completion|--show-config)
         _pi_info_only=1
         [[ "$_arg" == "--validate-config" ]] && _prev=--validate-config
+        [[ "$_arg" == "--completion" ]] && _prev=--completion
         ;;
       --no-config)  _pi_no_config_early=1 ;;
       --config)     _prev=--config ;;
+      --output)     _prev=--output ;;
     esac
   done
   unset _arg _prev
@@ -1049,6 +1094,23 @@ main() {
       exit $_rc
     fi
     echo "pi-optimiser: lib/features/profiles.sh missing pi_validate_config" >&2
+    exit 1
+  fi
+  if [[ -n "$PI_COMPLETION_SHELL" ]]; then
+    case "${PI_COMPLETION_SHELL,,}" in
+      bash) pi_emit_completion_bash ;;
+      zsh)  pi_emit_completion_zsh ;;
+      *) echo "pi-optimiser: unsupported shell '$PI_COMPLETION_SHELL' (expected bash|zsh)" >&2; exit 1 ;;
+    esac
+    exit 0
+  fi
+  if [[ $PI_SHOW_CONFIG -eq 1 ]]; then
+    if declare -F pi_show_effective_config >/dev/null 2>&1; then
+      local _rc=0
+      pi_show_effective_config || _rc=$?
+      exit $_rc
+    fi
+    echo "pi-optimiser: lib/features/profiles.sh missing pi_show_effective_config" >&2
     exit 1
   fi
 
@@ -1102,6 +1164,14 @@ main() {
     pi_undo_task "$PI_UNDO_TASK" || _rc=$?
     exit $_rc
   fi
+  if [[ $PI_UNDO_ALL -eq 1 ]]; then
+    if declare -F pi_undo_all >/dev/null 2>&1; then
+      pi_undo_all || _rc=$?
+      exit $_rc
+    fi
+    echo "pi-optimiser: lib/features/undo.sh missing pi_undo_all" >&2
+    exit 1
+  fi
   if [[ $PI_UNINSTALL -eq 1 ]]; then
     pi_uninstall || _rc=$?
     exit $_rc
@@ -1129,6 +1199,14 @@ main() {
   if [[ $PI_DO_UPDATE -eq 1 ]]; then
     pi_self_update || _rc=$?
     exit $_rc
+  fi
+  if [[ $PI_SELF_TEST -eq 1 ]]; then
+    if declare -F pi_self_test >/dev/null 2>&1; then
+      pi_self_test || _rc=$?
+      exit $_rc
+    fi
+    echo "pi-optimiser: lib/features/profiles.sh missing pi_self_test" >&2
+    exit 1
   fi
 
   # Launch the TUI when appropriate. It populates PI_TUI_SELECTED and
@@ -1176,6 +1254,21 @@ main() {
   done
   print_run_summary
   log_info "Optimisation run complete"
+
+  # Optional post-run auto-reboot (--reboot-after <mins>). Only when
+  # the run completed with no failures and a reboot is actually needed
+  # — there's no point rebooting for a run of `--only cpu_governor`.
+  if [[ -n "$PI_REBOOT_AFTER" && ${#SUMMARY_FAILED[@]} -eq 0 ]]; then
+    if declare -F pi_reboot_required >/dev/null 2>&1 && pi_reboot_required; then
+      log_warn "--reboot-after: scheduling reboot in $PI_REBOOT_AFTER minute(s)"
+      if ! shutdown -r "+$PI_REBOOT_AFTER" "pi-optimiser --reboot-after $PI_REBOOT_AFTER" >/dev/null 2>&1; then
+        log_warn "shutdown(1) failed; not rebooting"
+      fi
+    else
+      log_info "--reboot-after set but no task flagged reboot-required; skipping"
+    fi
+  fi
+
   if (( ${#SUMMARY_FAILED[@]} > 0 )); then
     exit 1
   fi

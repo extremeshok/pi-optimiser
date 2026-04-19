@@ -7,6 +7,7 @@
 # power_sensitive: 1
 # flags: --eeprom-update
 # gate_var: EEPROM_UPDATE
+# reboot_required: true
 # <<< pi-task
 
 pi_task_register eeprom_refresh \
@@ -16,7 +17,8 @@ pi_task_register eeprom_refresh \
   default_enabled=0 \
   power_sensitive=1 \
   flags="--eeprom-update" \
-  gate_var=EEPROM_UPDATE
+  gate_var=EEPROM_UPDATE \
+  reboot_required=1
 
 run_eeprom_refresh() {
   if [[ $EEPROM_UPDATE -eq 0 ]]; then

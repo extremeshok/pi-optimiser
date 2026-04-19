@@ -105,6 +105,11 @@ PY
 
 # --update: stage + swap + flip launcher.
 pi_self_update() {
+  if [[ ${PI_OPTIMISER_BUNDLED:-0} -eq 1 ]]; then
+    log_error "--update isn't supported on the single-file bundle."
+    log_error "Download the latest bundle from the release page, or run install.sh."
+    return 1
+  fi
   if [[ ${DRY_RUN:-0} -eq 1 ]]; then
     local _remote
     _remote=$(pi_update_remote_sha 2>/dev/null || echo "<unreachable>")
@@ -178,6 +183,21 @@ pi_self_update() {
   if [[ -f "$release_dir/share/logrotate/pi-optimiser" ]]; then
     install -m 0644 "$release_dir/share/logrotate/pi-optimiser" \
       /etc/logrotate.d/pi-optimiser 2>/dev/null || true
+  fi
+  # Refresh bash completion so new flags introduced by this update are
+  # suggested by TAB.
+  if [[ -d /etc/bash_completion.d && -x "$release_dir/pi-optimiser.sh" ]]; then
+    "$release_dir/pi-optimiser.sh" --completion bash \
+      > /etc/bash_completion.d/pi-optimiser 2>/dev/null \
+      || rm -f /etc/bash_completion.d/pi-optimiser
+  fi
+  # Regenerate man page if pandoc is present.
+  if command -v pandoc >/dev/null 2>&1 \
+      && [[ -f "$release_dir/share/man/pi-optimiser.8.md" ]]; then
+    mkdir -p /usr/local/share/man/man8
+    pandoc -s -t man "$release_dir/share/man/pi-optimiser.8.md" \
+      | gzip -9 > /usr/local/share/man/man8/pi-optimiser.8.gz 2>/dev/null \
+      || rm -f /usr/local/share/man/man8/pi-optimiser.8.gz
   fi
 
   ln -sfn "$release_dir" "$prefix/current.new"

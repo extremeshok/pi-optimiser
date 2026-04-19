@@ -1,0 +1,129 @@
+# ======================================================================
+# lib/features/completion.sh — shell-completion generators
+#
+# Emits a bash or zsh completion script on stdout. The generated
+# script completes:
+#   - long flags from the hard-coded PI_CLI_ACTION_FLAGS array
+#   - task ids (from `pi-optimiser --list-tasks`) after --only / --skip / --undo
+#   - profile names after --profile
+#   - file paths after --config / --validate-config / --restore
+# ======================================================================
+
+pi_emit_completion_bash() {
+  cat <<'BASH'
+# pi-optimiser bash completion
+_pi_optimiser() {
+  local cur prev words cword
+  _init_completion || return
+
+  local flags="
+    --force --dry-run --status --list-tasks --list-profiles
+    --report --snapshot --restore --undo --check-update --update
+    --enable-update-timer --disable-update-timer --require-signature
+    --uninstall --migrate --rollback --tui --no-tui --yes
+    --non-interactive --config --no-config --validate-config
+    --output --profile --only --skip
+    --install-tailscale --install-docker --install-zram
+    --install-wireguard --allow-both-vpn --install-node-exporter
+    --install-smartmontools --install-cli-modern --install-net-diag
+    --enable-dns-cache --overclock-conservative --underclock
+    --pi5-fan-profile --pcie-gen3 --enable-watchdog --secure-ssh
+    --firmware-update --eeprom-update --ssh-import-github
+    --ssh-import-url --hostname --timezone --locale --proxy-backend
+    --zram-algo --temp-limit --temp-soft-limit --initial-turbo
+    --wifi-powersave-off --disable-bluetooth --keep-screen-blanking
+    --docker-buildx-multiarch --docker-cgroupv2
+    --completion --help --version
+  "
+
+  case "$prev" in
+    --only|--skip|--undo)
+      local tasks
+      tasks=$(pi-optimiser --list-tasks 2>/dev/null \
+        | awk 'NR>2 && $1 ~ /^[a-z]/ {print $1}')
+      COMPREPLY=( $(compgen -W "$tasks" -- "$cur") )
+      return 0
+      ;;
+    --profile)
+      COMPREPLY=( $(compgen -W "kiosk server desktop headless-iot" -- "$cur") )
+      return 0
+      ;;
+    --output)
+      COMPREPLY=( $(compgen -W "text json" -- "$cur") )
+      return 0
+      ;;
+    --zram-algo)
+      COMPREPLY=( $(compgen -W "lz4 zstd disabled" -- "$cur") )
+      return 0
+      ;;
+    --config|--validate-config|--restore)
+      _filedir
+      return 0
+      ;;
+    --completion)
+      COMPREPLY=( $(compgen -W "bash zsh" -- "$cur") )
+      return 0
+      ;;
+  esac
+
+  if [[ $cur == -* ]]; then
+    COMPREPLY=( $(compgen -W "$flags" -- "$cur") )
+  fi
+}
+complete -F _pi_optimiser pi-optimiser
+complete -F _pi_optimiser pi-optimiser.sh
+BASH
+}
+
+pi_emit_completion_zsh() {
+  cat <<'ZSH'
+#compdef pi-optimiser pi-optimiser.sh
+# pi-optimiser zsh completion
+_pi_optimiser() {
+  local -a flags
+  flags=(
+    '--force[re-run tasks even if completed]'
+    '--dry-run[log intended actions only]'
+    '--status[print task status table]'
+    '--list-tasks[show available tasks]'
+    '--list-profiles[show built-in profiles]'
+    '--report[print state report]'
+    '--snapshot[tar current config into /etc/pi-optimiser/snapshots]'
+    '--restore[restore a snapshot tarball]:archive:_files'
+    '--undo[roll back a task]:task:->tasks'
+    '--check-update[check for updates (exit 10 if ahead)]'
+    '--update[self-update from the configured ref]'
+    '--enable-update-timer[install daily update timer]'
+    '--disable-update-timer[remove update timer]'
+    '--require-signature[require minisign signature for --update]'
+    '--uninstall[remove /opt/pi-optimiser]'
+    '--migrate[promote a dev checkout to an install]'
+    '--rollback[flip current to the previous release]'
+    '--tui[launch whiptail TUI]'
+    '--no-tui[suppress TUI]'
+    '--yes[assume yes to prompts]'
+    '--non-interactive[alias of --yes]'
+    '--config[read YAML config]:path:_files'
+    '--no-config[ignore /etc/pi-optimiser/config.yaml]'
+    '--validate-config[parse-check a YAML config]:path:_files'
+    '--output[output format]:fmt:(text json)'
+    '--profile[apply flag bundle]:profile:(kiosk server desktop headless-iot)'
+    '--only[restrict to task]:task:->tasks'
+    '--skip[skip a task]:task:->tasks'
+    '--zram-algo[ZRAM algorithm]:algo:(lz4 zstd disabled)'
+    '--completion[emit completion script]:shell:(bash zsh)'
+    '--help[show help]'
+    '--version[show version]'
+  )
+  _arguments -s $flags
+  case $state in
+    tasks)
+      local -a tasks
+      tasks=( ${(f)"$(pi-optimiser --list-tasks 2>/dev/null | awk 'NR>2 && $1 ~ /^[a-z]/ {print $1}')"} )
+      _describe 'task' tasks
+      ;;
+  esac
+}
+_pi_optimiser "$@"
+ZSH
+}

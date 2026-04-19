@@ -76,6 +76,11 @@ _pi_generate_report_text() {
   done
   printf '  %-16s %d registered / %d completed / %d failed / %d pending\n' \
     "Registry" "$total" "$done" "$failed" "$pending"
+  if declare -F pi_reboot_required >/dev/null 2>&1 && pi_reboot_required; then
+    local _rebr
+    _rebr=$(read_json_field "$CONFIG_OPTIMISER_STATE" "reboot.reason" 2>/dev/null || echo unspecified)
+    printf '  %-16s REBOOT REQUIRED (last flagged by: %s)\n' "Status" "$_rebr"
+  fi
   echo
   echo "Optional integrations"
   local line
@@ -129,6 +134,13 @@ for tid in order:
     st = tasks_state.get(tid, {}).get("status", "pending")
     summary[st] = summary.get(st, 0) + 1
 
+try:
+    with open("/etc/pi-optimiser/config-optimisations.json") as fh:
+        cfg = json.load(fh)
+except Exception:
+    cfg = {}
+reboot = cfg.get("reboot", {}) if isinstance(cfg, dict) else {}
+
 out = {
     "generated_at": safe_run(["date", "-Iseconds"]),
     "system": {
@@ -149,6 +161,8 @@ out = {
         "total": len(order),
         **summary,
     },
+    "reboot_required": reboot.get("required", "false") == "true",
+    "reboot_reason": reboot.get("reason"),
 }
 json.dump(out, sys.stdout, indent=2, sort_keys=True)
 sys.stdout.write("\n")

@@ -100,3 +100,52 @@ PY
   clear_task_state "$task"
   log_info "Cleared state for task '$task'; next run will re-evaluate it"
 }
+
+# Roll back every task that has a journal in $MARKER_DIR/backups/,
+# walking most-recent-run first. Useful after a problematic run when
+# the operator wants to revert en masse.
+pi_undo_all() {
+  local dir="$MARKER_DIR/backups"
+  if [[ ! -d "$dir" ]]; then
+    log_info "No backup journals to undo at $dir"
+    return 0
+  fi
+  if [[ ${DRY_RUN:-0} -eq 1 ]]; then
+    log_info "[dry-run] would undo all journaled tasks"
+    find "$dir" -maxdepth 1 -type f -name '*.json' \
+      -printf '  %f\n' 2>/dev/null | sed 's/\.json$//'
+    return 0
+  fi
+  if [[ ${PI_NON_INTERACTIVE:-0} -ne 1 ]]; then
+    echo "About to --undo every task with a backup journal under $dir."
+    echo "Pass --yes to skip this prompt."
+    read -r -p "Continue? [y/N] " answer </dev/tty
+    case ${answer,,} in
+      y|yes) ;;
+      *) log_warn "Undo-all cancelled"; return 0 ;;
+    esac
+  fi
+  local rc=0 any_fail=0
+  # Walk journals in reverse mtime order so the most recent run is
+  # undone last (we prefer newest-first per-task, so older tasks
+  # don't clobber newer ones when paths overlap).
+  local journal tid
+  while IFS= read -r journal; do
+    tid=$(basename "$journal" .json)
+    log_info "--undo --all: rolling back '$tid'"
+    PI_NON_INTERACTIVE=1 pi_undo_task "$tid" || { any_fail=1; rc=$?; }
+  done < <(find "$dir" -maxdepth 1 -type f -name '*.json' -printf '%T@ %p\n' \
+           2>/dev/null | sort -rn | awk '{print $2}')
+  if (( any_fail == 0 )); then
+    log_info "All journaled tasks rolled back"
+    # Everything is rolled back; the reboot-required flag is no
+    # longer meaningful. Clear it so the next --report doesn't
+    # scream REBOOT REQUIRED.
+    write_json_field "$CONFIG_OPTIMISER_STATE" "reboot.required" "false"
+    write_json_field "$CONFIG_OPTIMISER_STATE" "reboot.cleared_at" \
+      "$(date --iso-8601=seconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')"
+  else
+    log_warn "Some tasks failed to roll back (last rc=$rc)"
+  fi
+  return $rc
+}
