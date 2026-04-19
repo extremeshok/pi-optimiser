@@ -245,21 +245,22 @@ if isinstance(m, dict):
     if mpath:
         out.append(f'PI_METRICS_PATH={sv(mpath)}')
 
-# Per-task freeze: `freeze_tasks: [id1, id2]` or nested list form.
-# Supports both inline `[a, b]` and multi-line `- a` YAML styles; our
-# tiny parser flattens multi-line lists into a single `- a - b` string
-# so we split on both commas and `- ` markers.
+# Per-task freeze. Supports both inline and multi-line YAML:
+#   freeze_tasks: [fstab, zram]         # inline → string "[fstab, zram]"
+#   freeze_tasks:                        # multi-line → dict with keys
+#     - fstab                            #   "- fstab" and "- zram"
+#     - zram                             #   (our tiny parser doesn't grok lists)
+import re
+frozen_ids = []
 frozen = data.get("freeze_tasks", "")
-if isinstance(frozen, str) and frozen:
-    import re
-    raw = frozen.strip()
-    if raw.startswith("[") and raw.endswith("]"):
-        raw = raw[1:-1]
-    parts = re.split(r"[,\s]+", raw.replace("-", " "))
-    ids = [p.strip().strip('"\'') for p in parts if p.strip()]
-    for fid in ids:
-        if re.match(r"^[a-z0-9_]+$", fid):
-            out.append(f'PI_FROZEN_TASKS[{sv(fid)}]=1')
+if isinstance(frozen, str) and frozen.strip():
+    raw = frozen.strip().lstrip("[").rstrip("]")
+    frozen_ids = [p.strip().strip('"\'') for p in raw.split(",")]
+elif isinstance(frozen, dict):
+    frozen_ids = [k.lstrip("- ").strip() for k in frozen.keys()]
+for fid in frozen_ids:
+    if re.match(r"^[a-z0-9_]+$", fid):
+        out.append(f'PI_FROZEN_TASKS[{sv(fid)}]=1')
 
 print("\n".join(out))
 PY

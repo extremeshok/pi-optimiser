@@ -77,7 +77,7 @@ pass "completion"
 
 step "--diff flags accepted; no writes to /boot/firmware"
 pre_config_mtime=$(stat -c %Y /boot/firmware/config.txt)
-"$BIN" --diff --pi5-fan-profile --yes >/dev/null 2>&1 || true
+"$BIN" --diff --pi5-fan-profile --yes >/dev/null 2>&1
 post_config_mtime=$(stat -c %Y /boot/firmware/config.txt)
 if [[ "$pre_config_mtime" != "$post_config_mtime" ]]; then
   printf 'FAIL  --diff modified /boot/firmware/config.txt (mtime %s -> %s)\n' \
@@ -87,12 +87,18 @@ fi
 pass "--diff leaves /boot/firmware untouched"
 
 step "--freeze-task consulted by apply_once"
-out=$("$BIN" --dry-run --freeze-task fstab 2>&1 | grep -c 'fstab (frozen)' || true)
-if [[ "$out" -lt 1 ]]; then
+if ! "$BIN" --dry-run --freeze-task fstab 2>&1 | grep -q 'fstab (frozen)'; then
   printf 'FAIL  expected "fstab (frozen)" in output\n' >&2
   exit 1
 fi
 pass "--freeze-task"
+
+step "--freeze-task rejects unknown ids"
+if "$BIN" --freeze-task nonexistent_task --yes 2>/dev/null; then
+  printf 'FAIL  expected --freeze-task to reject unknown id\n' >&2
+  exit 1
+fi
+pass "--freeze-task unknown-id validation"
 
 step "bundle: build + bash -n + --version"
 scripts/build-bundle.sh /tmp/bundle.sh

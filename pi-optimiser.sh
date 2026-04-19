@@ -484,12 +484,24 @@ apply_once() {
   CURRENT_TASK="$task"
   TASK_SKIP_REASON=""
   # --freeze-task / config.yaml freeze_tasks: pin a task at its current
-  # recorded version. Even with --force the task is kept frozen — that's
-  # the point; the operator opted out of re-runs for this id. Skipped
-  # entries surface in the summary as "(frozen)".
+  # recorded version. Frozen always wins — over --force, --diff, and
+  # --dry-run — since the user explicitly opted out of running this id.
   if [[ -n "${PI_FROZEN_TASKS[$task]:-}" ]]; then
     log_info "Skipping $task (frozen)"
     SUMMARY_SKIPPED+=("$task (frozen)")
+    return 0
+  fi
+  # --diff runs before the already-completed short-circuit because the
+  # user wants to see what the current config would do, even for tasks
+  # that have already been applied. No state mutation, no real runner.
+  if [[ ${PI_CONFIG_PREVIEW:-0} -eq 1 ]]; then
+    local _preview_fn="pi_preview_${task}"
+    if declare -F "$_preview_fn" >/dev/null 2>&1; then
+      "$_preview_fn" || true
+      SUMMARY_SKIPPED+=("$task (preview)")
+    else
+      SUMMARY_SKIPPED+=("$task (no preview available)")
+    fi
     return 0
   fi
   if [[ $FORCE -eq 0 ]] && is_task_done "$task"; then
@@ -505,19 +517,6 @@ apply_once() {
     clear_task_state "$task"
   fi
   log_info "Running task $task: $desc"
-  # --diff: invoke the task's preview function (if one exists) to populate
-  # the config-diff buffer, then skip the real runner so no side effects
-  # happen. Tasks without a pi_preview_<id> just show up as preview-only.
-  if [[ ${PI_CONFIG_PREVIEW:-0} -eq 1 ]]; then
-    local _preview_fn="pi_preview_${task}"
-    if declare -F "$_preview_fn" >/dev/null 2>&1; then
-      "$_preview_fn" || true
-      SUMMARY_SKIPPED+=("$task (preview)")
-    else
-      SUMMARY_SKIPPED+=("$task (no preview available)")
-    fi
-    return 0
-  fi
   if [[ $DRY_RUN -eq 1 ]]; then
     # Consult the task's gate_var/skip_var metadata (set by
     # pi_task_register) so dry-run can tell "opt-in not requested" and
@@ -1141,6 +1140,19 @@ main() {
   pi_load_tasks
   pi_load_manifest
 
+  # --freeze-task takes a task id, but at parse_args time the registry
+  # is empty so we can't validate. Do it now — fail loud on typos
+  # instead of silently accepting them.
+  if (( ${#PI_FROZEN_TASKS[@]} > 0 )); then
+    local _fid
+    for _fid in "${!PI_FROZEN_TASKS[@]}"; do
+      if [[ -z "${PI_TASK_DESC[$_fid]:-}" ]]; then
+        echo "pi-optimiser: --freeze-task '$_fid' is not a registered task id" >&2
+        exit 1
+      fi
+    done
+  fi
+
   if [[ $LIST_TASKS -eq 1 ]]; then
     list_tasks
     exit 0
@@ -1344,14 +1356,16 @@ main() {
     fi
   fi
 
-  # Drop the flock before entering --watch: the parent blocks on inotify
-  # and child re-runs need to acquire their own lock. Closing fd 9
-  # releases the advisory lock held by this process.
-  _pi_watch_ready() {
-    [[ "${PI_WATCH:-0}" == "1" ]] && declare -F pi_watch_loop >/dev/null 2>&1
-  }
+  # --watch: parent drops the flock (fd 9) before blocking on inotify
+  # so child re-runs can acquire their own lock. Task failures in the
+  # first pass don't kill the watcher — the user can fix config.yaml
+  # and save to trigger a retry.
+  local _enter_watch=0
+  if [[ "${PI_WATCH:-0}" == "1" ]] && declare -F pi_watch_loop >/dev/null 2>&1; then
+    _enter_watch=1
+  fi
   if (( ${#SUMMARY_FAILED[@]} > 0 )); then
-    if _pi_watch_ready; then
+    if [[ $_enter_watch -eq 1 ]]; then
       SUMMARY_COMPLETED=() SUMMARY_SKIPPED=() SUMMARY_FAILED=()
       exec 9>&- 2>/dev/null || true
       pi_watch_loop || true
@@ -1359,7 +1373,7 @@ main() {
     fi
     exit 1
   fi
-  if _pi_watch_ready; then
+  if [[ $_enter_watch -eq 1 ]]; then
     exec 9>&- 2>/dev/null || true
     pi_watch_loop || true
   fi
