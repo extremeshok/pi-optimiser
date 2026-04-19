@@ -5,6 +5,7 @@
 # category: display
 # default_enabled: 1
 # power_sensitive: 1
+# reboot_required: true
 # <<< pi-task
 
 pi_task_register libliftoff \
@@ -12,7 +13,8 @@ pi_task_register libliftoff \
   category=display \
   version=1.1.0 \
   default_enabled=1 \
-  power_sensitive=1
+  power_sensitive=1 \
+  reboot_required=1
 
 run_libliftoff() {
   if ! pi_supports_kms_overlays; then

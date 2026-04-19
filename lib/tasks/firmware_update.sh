@@ -7,6 +7,7 @@
 # power_sensitive: 1
 # flags: --firmware-update
 # gate_var: FIRMWARE_UPDATE
+# reboot_required: true
 # <<< pi-task
 
 pi_task_register firmware_update \
@@ -16,7 +17,8 @@ pi_task_register firmware_update \
   default_enabled=0 \
   power_sensitive=1 \
   flags="--firmware-update" \
-  gate_var=FIRMWARE_UPDATE
+  gate_var=FIRMWARE_UPDATE \
+  reboot_required=1
 
 run_firmware_update() {
   if [[ $FIRMWARE_UPDATE -eq 0 ]]; then

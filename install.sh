@@ -49,13 +49,16 @@ tmp_tar=$(mktemp)
 tmp_extract=$(mktemp -d)
 trap 'rm -f "$tmp_tar"; rm -rf "$tmp_extract"' EXIT
 
-tarball_url="https://codeload.github.com/${PI_OPTIMISER_REPO}/tar.gz/refs/heads/${PI_OPTIMISER_REF}"
 echo "Fetching pi-optimiser @ ${PI_OPTIMISER_REF}"
-if ! curl -fsSL "$tarball_url" -o "$tmp_tar"; then
-  # Fall back to tag path.
-  tarball_url="https://codeload.github.com/${PI_OPTIMISER_REPO}/tar.gz/refs/tags/${PI_OPTIMISER_REF}"
-  if ! curl -fsSL "$tarball_url" -o "$tmp_tar"; then
-    echo "Failed to download ${tarball_url}" >&2
+# Try tag first (the common case for versioned refs like v9.0.1), then
+# fall back to branches (for master/main). `curl -fsSL -o` emits its
+# own message on failure, so we route both attempts' stderr to /dev/null
+# and only surface a combined error if both fail.
+tag_url="https://codeload.github.com/${PI_OPTIMISER_REPO}/tar.gz/refs/tags/${PI_OPTIMISER_REF}"
+branch_url="https://codeload.github.com/${PI_OPTIMISER_REPO}/tar.gz/refs/heads/${PI_OPTIMISER_REF}"
+if ! curl -fsSL "$tag_url" -o "$tmp_tar" 2>/dev/null; then
+  if ! curl -fsSL "$branch_url" -o "$tmp_tar" 2>/dev/null; then
+    echo "Failed to download ${PI_OPTIMISER_REF} (tried tag + branch)" >&2
     exit 1
   fi
 fi
@@ -83,6 +86,24 @@ done
 if [[ -f "$release_dir/share/logrotate/pi-optimiser" ]]; then
   install -m 0644 "$release_dir/share/logrotate/pi-optimiser" \
     /etc/logrotate.d/pi-optimiser 2>/dev/null || true
+fi
+
+# Bash completion — harmless if no bash-completion package is present
+# (the file just sits there). Zsh users can source manually.
+if [[ -d /etc/bash_completion.d ]] && [[ -x "$release_dir/pi-optimiser.sh" ]]; then
+  "$release_dir/pi-optimiser.sh" --completion bash \
+    > /etc/bash_completion.d/pi-optimiser 2>/dev/null \
+    || rm -f /etc/bash_completion.d/pi-optimiser
+fi
+
+# Man page — only if pandoc is installed. Skipped silently otherwise
+# (the shipped markdown source is still readable).
+if command -v pandoc >/dev/null 2>&1 \
+    && [[ -f "$release_dir/share/man/pi-optimiser.8.md" ]]; then
+  mkdir -p /usr/local/share/man/man8
+  pandoc -s -t man "$release_dir/share/man/pi-optimiser.8.md" \
+    | gzip -9 > /usr/local/share/man/man8/pi-optimiser.8.gz 2>/dev/null \
+    || rm -f /usr/local/share/man/man8/pi-optimiser.8.gz
 fi
 
 chmod 755 "$release_dir"

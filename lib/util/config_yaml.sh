@@ -140,8 +140,16 @@ def parse(text):
         indent = len(line) - len(line.lstrip())
         key, _, val = line.strip().partition(":")
         val = val.strip()
+        # Strip trailing inline comments: `key: value  # comment` →
+        # `key: value`. Quoted strings keep any `#` they contain.
         if val.startswith("\"") and val.endswith("\"") and len(val) >= 2:
             val = val[1:-1]
+        else:
+            # Look for ` #` or a leading `#` as the comment marker.
+            for pos, ch in enumerate(val):
+                if ch == "#" and (pos == 0 or val[pos-1] in (" ", "\t")):
+                    val = val[:pos].rstrip()
+                    break
         # Pop scopes whose indent is >= ours (they're closed now).
         while stack[-1][0] >= indent:
             stack.pop()

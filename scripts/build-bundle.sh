@@ -59,7 +59,13 @@ order_ui = ["tui"]
 
 parts = []
 parts.append("# --- begin pi-optimiser bundle ---\n")
+# PI_OPTIMISER_BUNDLED flags that the script is the concatenated
+# release bundle (no filesystem `lib/` tree). --migrate and --update
+# short-circuit with a friendly error when set — the bundle is for
+# one-shot `curl | sudo bash` use; installed operation is via
+# install.sh / the git checkout.
 parts.append("PI_OPTIMISER_BUNDLED=1\n")
+parts.append("export PI_OPTIMISER_BUNDLED\n")
 parts.append('SCRIPT_DIR="${PI_OPTIMISER_SCRIPT_DIR:-/opt/pi-optimiser/current}"\n')
 parts.append('LIB_UTIL_DIR="$SCRIPT_DIR/lib/util"\n')
 parts.append('LIB_FEATURES_DIR="$SCRIPT_DIR/lib/features"\n')

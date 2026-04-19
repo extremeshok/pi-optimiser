@@ -283,6 +283,22 @@ PY
   return 0
 }
 
+# Flag the system as needing a reboot for changes to take effect.
+# Tasks that edit /boot/firmware/* or EEPROM settings should call
+# this so `--report` and the post-run summary can surface it.
+pi_mark_reboot_required() {
+  local reason=${1:-${CURRENT_TASK:-unspecified}}
+  write_json_field "$CONFIG_OPTIMISER_STATE" "reboot.required" "true"
+  write_json_field "$CONFIG_OPTIMISER_STATE" "reboot.reason" "$reason"
+  write_json_field "$CONFIG_OPTIMISER_STATE" "reboot.set_at" \
+    "$(date --iso-8601=seconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')"
+}
+
+# Return success (0) when a reboot has been flagged.
+pi_reboot_required() {
+  [[ "$(read_json_field "$CONFIG_OPTIMISER_STATE" "reboot.required" 2>/dev/null)" == "true" ]]
+}
+
 # Return success when a task previously completed successfully.
 is_task_done() {
   if get_task_state "$1"; then

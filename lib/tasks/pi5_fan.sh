@@ -7,6 +7,7 @@
 # power_sensitive: 1
 # flags: --pi5-fan-profile
 # gate_var: INSTALL_PI5_FAN_PROFILE
+# reboot_required: true
 # <<< pi-task
 
 pi_task_register pi5_fan \
@@ -16,7 +17,8 @@ pi_task_register pi5_fan \
   default_enabled=0 \
   power_sensitive=1 \
   flags="--pi5-fan-profile" \
-  gate_var=INSTALL_PI5_FAN_PROFILE
+  gate_var=INSTALL_PI5_FAN_PROFILE \
+  reboot_required=1
 
 run_pi5_fan() {
   if [[ $INSTALL_PI5_FAN_PROFILE -eq 0 ]]; then

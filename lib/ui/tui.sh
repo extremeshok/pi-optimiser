@@ -31,7 +31,13 @@ label=black,lightgray
 '
 
 pi_tui_available() {
-  command -v whiptail >/dev/null 2>&1
+  command -v whiptail >/dev/null 2>&1 || return 1
+  # whiptail renders garbage on a non-capable terminal; bail out so
+  # the caller falls back to plain stdout.
+  case "${TERM:-dumb}" in
+    dumb|"") return 1 ;;
+  esac
+  return 0
 }
 
 # Decide if we should launch the TUI given current CLI flags + TTY.

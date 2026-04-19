@@ -7,6 +7,7 @@
 # power_sensitive: 1
 # flags: --temp-limit,--temp-soft-limit,--initial-turbo
 # gate_var: THERMAL_THRESHOLDS_SET
+# reboot_required: true
 # <<< pi-task
 
 pi_task_register thermal_thresholds \
@@ -16,7 +17,8 @@ pi_task_register thermal_thresholds \
   default_enabled=0 \
   power_sensitive=1 \
   flags="--temp-limit,--temp-soft-limit,--initial-turbo" \
-  gate_var=THERMAL_THRESHOLDS_SET
+  gate_var=THERMAL_THRESHOLDS_SET \
+  reboot_required=1
 
 run_thermal_thresholds() {
   if [[ ${THERMAL_THRESHOLDS_SET:-0} -eq 0 ]]; then

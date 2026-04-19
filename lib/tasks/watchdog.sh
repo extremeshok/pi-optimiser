@@ -7,6 +7,7 @@
 # power_sensitive: 1
 # flags: --enable-watchdog
 # gate_var: INSTALL_WATCHDOG
+# reboot_required: true
 # <<< pi-task
 
 pi_task_register watchdog \
@@ -16,7 +17,8 @@ pi_task_register watchdog \
   default_enabled=0 \
   power_sensitive=1 \
   flags="--enable-watchdog" \
-  gate_var=INSTALL_WATCHDOG
+  gate_var=INSTALL_WATCHDOG \
+  reboot_required=1
 
 run_watchdog() {
   if [[ $INSTALL_WATCHDOG -eq 0 ]]; then

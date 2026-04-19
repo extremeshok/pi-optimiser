@@ -7,6 +7,7 @@
 # power_sensitive: 0
 # flags: --underclock
 # gate_var: REQUEST_UNDERCLOCK
+# reboot_required: true
 # <<< pi-task
 
 pi_task_register underclock \
@@ -15,7 +16,8 @@ pi_task_register underclock \
   version=1.0.0 \
   default_enabled=0 \
   flags="--underclock" \
-  gate_var=REQUEST_UNDERCLOCK
+  gate_var=REQUEST_UNDERCLOCK \
+  reboot_required=1
 
 run_underclock() {
   if [[ ${REQUEST_UNDERCLOCK:-0} -eq 0 ]]; then

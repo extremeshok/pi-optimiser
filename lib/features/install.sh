@@ -45,6 +45,11 @@ pi_uninstall() {
 # Copy the currently-running checkout to $PI_PREFIX as a new release,
 # then flip the `current` symlink and drop the launcher symlink.
 pi_migrate_install() {
+  if [[ ${PI_OPTIMISER_BUNDLED:-0} -eq 1 ]]; then
+    log_error "--migrate isn't meaningful on a single-file bundle."
+    log_error "Run install.sh or clone the repo for an installed layout."
+    return 1
+  fi
   if [[ ${DRY_RUN:-0} -eq 1 ]]; then
     log_info "[dry-run] would stage $SCRIPT_DIR into $PI_PREFIX/releases/migrated-<ts>"
     return 0
@@ -66,6 +71,20 @@ pi_migrate_install() {
   if [[ -f "$release_dir/share/logrotate/pi-optimiser" ]]; then
     install -m 0644 "$release_dir/share/logrotate/pi-optimiser" \
       /etc/logrotate.d/pi-optimiser 2>/dev/null || true
+  fi
+  # Bash completion.
+  if [[ -d /etc/bash_completion.d && -x "$release_dir/pi-optimiser.sh" ]]; then
+    "$release_dir/pi-optimiser.sh" --completion bash \
+      > /etc/bash_completion.d/pi-optimiser 2>/dev/null \
+      || rm -f /etc/bash_completion.d/pi-optimiser
+  fi
+  # Man page (only if pandoc is available).
+  if command -v pandoc >/dev/null 2>&1 \
+      && [[ -f "$release_dir/share/man/pi-optimiser.8.md" ]]; then
+    mkdir -p /usr/local/share/man/man8
+    pandoc -s -t man "$release_dir/share/man/pi-optimiser.8.md" \
+      | gzip -9 > /usr/local/share/man/man8/pi-optimiser.8.gz 2>/dev/null \
+      || rm -f /usr/local/share/man/man8/pi-optimiser.8.gz
   fi
 
   ln -sfn "$release_dir" "$PI_PREFIX/current.new"

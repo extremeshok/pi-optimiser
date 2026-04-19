@@ -7,6 +7,7 @@
 # power_sensitive: 1
 # flags: --pcie-gen3
 # gate_var: INSTALL_PCIE_GEN3
+# reboot_required: true
 # <<< pi-task
 
 pi_task_register pcie_gen3 \
@@ -16,7 +17,8 @@ pi_task_register pcie_gen3 \
   default_enabled=0 \
   power_sensitive=1 \
   flags="--pcie-gen3" \
-  gate_var=INSTALL_PCIE_GEN3
+  gate_var=INSTALL_PCIE_GEN3 \
+  reboot_required=1
 
 run_pcie_gen3() {
   if [[ ${INSTALL_PCIE_GEN3:-0} -eq 0 ]]; then
