@@ -5,13 +5,15 @@
 # category: display
 # default_enabled: 1
 # power_sensitive: 0
+# skip_var: KEEP_SCREEN_BLANKING
 # <<< pi-task
 
 pi_task_register screen_blanking \
   description="Disable console and desktop screen blanking" \
   category=display \
   version=1.1.0 \
-  default_enabled=1
+  default_enabled=1 \
+  skip_var=KEEP_SCREEN_BLANKING
 
 run_screen_blanking() {
   if [[ ${KEEP_SCREEN_BLANKING:-0} -eq 1 ]]; then

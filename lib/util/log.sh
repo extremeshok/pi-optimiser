@@ -24,13 +24,17 @@ init_logging() {
 # log-file append is best-effort — non-root invocations (--version,
 # --help, etc.) can't write to /var/log/pi-optimiser.log but must not
 # leak a "Permission denied" error to the user.
+#
+# When PI_OUTPUT_JSON=1, all log lines go to stderr so stdout is a
+# clean JSON stream for `--status --output json`, `--report --output
+# json`, `--check-update --output json`, etc.
 log_with_level() {
   local level=$1
   shift
   local timestamp message
   timestamp=$(date +'%Y-%m-%d %H:%M:%S')
   message="$timestamp [$level] $*"
-  if [[ "$level" == "ERROR" ]]; then
+  if [[ "$level" == "ERROR" || ${PI_OUTPUT_JSON:-0} -eq 1 ]]; then
     echo "$message" >&2
   else
     echo "$message"

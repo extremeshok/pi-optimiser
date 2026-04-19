@@ -131,6 +131,7 @@ PI_REQUIRE_SIGNATURE=0
 PI_FORCE_TUI=0
 PI_NO_TUI=0
 PI_CONFIG_FILE=""
+PI_NO_CONFIG=0
 
 # shellcheck disable=SC2034  # used by lib/util/* modules
 APT_UPDATED=0
@@ -179,7 +180,8 @@ declare -a SUMMARY_FAILED=()
 # shellcheck disable=SC2034
 declare -A PI_TASK_DESC=() PI_TASK_CATEGORY=() PI_TASK_VERSION=() \
           PI_TASK_FLAGS=() PI_TASK_POWER_SENSITIVE=() PI_TASK_DEFAULT=() \
-          PI_TASK_GATE_FLAG=() PI_TASK_GATE_VAR=() PI_TASK_RUNNER=()
+          PI_TASK_GATE_FLAG=() PI_TASK_GATE_VAR=() PI_TASK_SKIP_VAR=() \
+          PI_TASK_RUNNER=()
 declare -a PI_TASK_ORDER=()
 
 TASK_SKIP_REASON=""
@@ -218,6 +220,7 @@ pi_task_register() {
       flags)           PI_TASK_FLAGS[$id]=$value ;;
       gate_flag)       PI_TASK_GATE_FLAG[$id]=$value ;;
       gate_var)        PI_TASK_GATE_VAR[$id]=$value ;;
+      skip_var)        PI_TASK_SKIP_VAR[$id]=$value ;;
       default_enabled) PI_TASK_DEFAULT[$id]=$value ;;
       power_sensitive) PI_TASK_POWER_SENSITIVE[$id]=$value ;;
       runner)          PI_TASK_RUNNER[$id]=$value ;;
@@ -231,6 +234,9 @@ pi_skip_reason() {
 }
 
 # Source every lib/tasks/*.sh in sorted order; each file self-registers.
+# A file is treated as a task only if it contains a `pi_task_register`
+# call — stray scripts dropped in the directory by hand or by a sloppy
+# rsync won't be re-executed (they'd re-enter main and exit 1).
 pi_load_tasks() {
   local tasks_dir="$SCRIPT_DIR/lib/tasks"
   if [[ ! -d "$tasks_dir" ]]; then
@@ -240,6 +246,10 @@ pi_load_tasks() {
   local _task_file
   for _task_file in "$tasks_dir"/*.sh; do
     [[ -f "$_task_file" ]] || continue
+    if ! grep -q '^[[:space:]]*pi_task_register[[:space:]]' "$_task_file"; then
+      log_warn "Skipping $_task_file (no pi_task_register call found)"
+      continue
+    fi
     # shellcheck source=/dev/null
     source "$_task_file"
   done
@@ -337,6 +347,7 @@ Options:
   --tui                  Launch the interactive whiptail menu (default on a TTY with no action flags)
   --no-tui               Suppress the interactive menu even on a TTY
   --config <path>        Read a YAML config file; CLI flags still override individual keys
+  --no-config            Ignore /etc/pi-optimiser/config.yaml even if present
   --keep-screen-blanking Keep default desktop blanking behaviour
   --help                 Show this help message and exit
   --version              Print script version and exit
@@ -442,7 +453,28 @@ apply_once() {
   fi
   log_info "Running task $task: $desc"
   if [[ $DRY_RUN -eq 1 ]]; then
-    log_info "[dry-run] $task not executed"
+    # Consult the task's gate_var/skip_var metadata (set by
+    # pi_task_register) so dry-run can tell "opt-in not requested" and
+    # "explicitly suppressed" apart from "would actually run".
+    local _gate=${PI_TASK_GATE_VAR[$task]:-}
+    if [[ -n "$_gate" ]]; then
+      local _gate_val="${!_gate:-}"
+      if [[ -z "$_gate_val" || "$_gate_val" == "0" ]]; then
+        log_info "[dry-run] $task would skip — $_gate is unset"
+        SUMMARY_SKIPPED+=("$task (not requested)")
+        return 0
+      fi
+    fi
+    local _skip=${PI_TASK_SKIP_VAR[$task]:-}
+    if [[ -n "$_skip" ]]; then
+      local _skip_val="${!_skip:-}"
+      if [[ -n "$_skip_val" && "$_skip_val" != "0" ]]; then
+        log_info "[dry-run] $task would skip — $_skip is set"
+        SUMMARY_SKIPPED+=("$task (suppressed by $_skip)")
+        return 0
+      fi
+    fi
+    log_info "[dry-run] $task would run"
     SUMMARY_SKIPPED+=("$task (dry-run)")
     return 0
   fi
@@ -732,6 +764,7 @@ parse_args() {
         if [[ $# -lt 2 ]]; then echo "--config requires a path" >&2; exit 1; fi
         PI_CONFIG_FILE=$2; shift
         ;;
+      --no-config)           PI_NO_CONFIG=1 ;;
       --report)               PI_REPORT=1 ;;
       --snapshot)             PI_SNAPSHOT_ONLY=1 ;;
       --restore)
@@ -912,23 +945,29 @@ main() {
     --profile --config
   )
 
-  # Load persisted config first; CLI flags applied next override it.
-  if [[ -f "${PI_CONFIG_DEFAULT:-/etc/pi-optimiser/config.yaml}" && -z "$PI_CONFIG_FILE" ]]; then
-    pi_config_load "$PI_CONFIG_DEFAULT" || true
-  fi
-  if [[ -n "$PI_CONFIG_FILE" ]]; then
-    pi_config_load "$PI_CONFIG_FILE" || true
-  fi
-
   parse_args "$@"
 
   # Tasks must be sourced before --list-tasks so the registry is populated.
   pi_load_tasks
   pi_load_manifest
 
+  # --list-tasks is an info-only command; skip the config-load preamble
+  # so its stdout stays clean for machine parsers.
   if [[ $LIST_TASKS -eq 1 ]]; then
     list_tasks
     exit 0
+  fi
+
+  # Now load persisted config (unless --no-config). CLI flags were
+  # already applied by parse_args, so they win over config values for
+  # flags that take an argument. For boolean flags, the config value
+  # is the fallback when the CLI flag wasn't passed.
+  if [[ $PI_NO_CONFIG -eq 0 ]]; then
+    if [[ -n "$PI_CONFIG_FILE" ]]; then
+      pi_config_load "$PI_CONFIG_FILE" || true
+    elif [[ -f "${PI_CONFIG_DEFAULT:-/etc/pi-optimiser/config.yaml}" ]]; then
+      pi_config_load "$PI_CONFIG_DEFAULT" || true
+    fi
   fi
   require_root
   init_logging
@@ -946,45 +985,50 @@ main() {
     pi_generate_report
     exit 0
   fi
+  # `set -e` + ERR trap would log a misleading "Failure at line …" for
+  # a feature that legitimately returns non-zero (e.g. --undo against
+  # a task that never ran). Use _run_feature to exit cleanly with the
+  # feature's return code without tripping the trap.
+  local _rc=0
   if [[ $PI_SNAPSHOT_ONLY -eq 1 ]]; then
-    pi_take_snapshot
-    exit $?
+    pi_take_snapshot || _rc=$?
+    exit $_rc
   fi
   if [[ -n "$PI_RESTORE_PATH" ]]; then
-    pi_restore_snapshot "$PI_RESTORE_PATH"
-    exit $?
+    pi_restore_snapshot "$PI_RESTORE_PATH" || _rc=$?
+    exit $_rc
   fi
   if [[ -n "$PI_UNDO_TASK" ]]; then
-    pi_undo_task "$PI_UNDO_TASK"
-    exit $?
+    pi_undo_task "$PI_UNDO_TASK" || _rc=$?
+    exit $_rc
   fi
   if [[ $PI_UNINSTALL -eq 1 ]]; then
-    pi_uninstall
-    exit $?
+    pi_uninstall || _rc=$?
+    exit $_rc
   fi
   if [[ $PI_MIGRATE_INSTALL -eq 1 ]]; then
-    pi_migrate_install
-    exit $?
+    pi_migrate_install || _rc=$?
+    exit $_rc
   fi
   if [[ $PI_ROLLBACK -eq 1 ]]; then
-    pi_rollback_release
-    exit $?
+    pi_rollback_release || _rc=$?
+    exit $_rc
   fi
   if [[ $PI_UPDATE_TIMER_ENABLE -eq 1 ]]; then
-    pi_enable_update_timer
-    exit $?
+    pi_enable_update_timer || _rc=$?
+    exit $_rc
   fi
   if [[ $PI_UPDATE_TIMER_DISABLE -eq 1 ]]; then
-    pi_disable_update_timer
-    exit $?
+    pi_disable_update_timer || _rc=$?
+    exit $_rc
   fi
   if [[ $PI_DO_CHECK_UPDATE -eq 1 ]]; then
-    pi_check_update
-    exit $?
+    pi_check_update || _rc=$?
+    exit $_rc
   fi
   if [[ $PI_DO_UPDATE -eq 1 ]]; then
-    pi_self_update
-    exit $?
+    pi_self_update || _rc=$?
+    exit $_rc
   fi
 
   # Launch the TUI when appropriate. It populates PI_TUI_SELECTED and
