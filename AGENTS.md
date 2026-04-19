@@ -51,9 +51,22 @@ handles that.
 2. **No emoji.** Not in code, comments, commit messages, PR bodies,
    or README. This project is used headlessly and piped through
    non-UTF8 terminals.
-3. **No AI-service branding.** Never add `Co-Authored-By` with an AI
-   service, never add "Generated with …" footers, never put
-   Claude/GPT/AI metadata in files.
+3. **No AI-service branding or co-authoring. Zero exceptions.**
+   This applies to every commit message, PR body, code comment,
+   doc, and generated artefact:
+   - Never add a `Co-Authored-By:` trailer naming an AI service,
+     assistant, tool vendor, or any `noreply@anthropic.com` /
+     similar address.
+   - Never add "Generated with …", "🤖", "Co-authored by Claude",
+     "Powered by …", or any similar footer/banner.
+   - Never name Claude, GPT, Copilot, Anthropic, OpenAI, Cursor,
+     Aider, or any other AI tool in code, comments, or docs.
+   - Never write the author as the tool; the human operator is
+     the sole author on record.
+   If you spot an existing violation (in files OR commit history),
+   remove it. Rewrite commit messages via `git filter-branch
+   --msg-filter` / `git filter-repo` and coordinate a force-push
+   with the maintainer.
 4. **ShellCheck must stay clean** at `--severity=warning`. Cross-file
    false positives (SC2034 / SC2154) are suppressed with targeted
    `# shellcheck disable=...` and a one-line reason.

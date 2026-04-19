@@ -36,9 +36,9 @@ Maintainers will check for:
 - Compatibility with supported hardware (Pi 5/500, 4/400, 3, Zero 2).
 - Clear documentation updates accompanying user-visible changes.
 
-Automated contributors (Claude Code, Cursor, Aider, etc.) should also
-read [AGENTS.md](AGENTS.md), which documents the task-file API, the
-golden rules (no emoji, no AI branding, no schema breakage without a
+Automated contributors should also read [AGENTS.md](AGENTS.md), which
+documents the task-file API, the golden rules (no emoji, no AI
+branding, no co-author trailers, no schema breakage without a
 migration), and the release process. [TODO.md](TODO.md) has the
 current backlog.
 
