@@ -127,8 +127,12 @@ path = os.environ["PI_CONFIG_PATH"]
 # Tiny YAML parser — handles the flat subset we emit. We avoid PyYAML
 # since Pi OS doesn't ship it by default.
 def parse(text):
+    # Stack always retains a sentinel (-1, root) so top-level keys find
+    # their parent without popping the root off. Without the sentinel
+    # a sibling-at-indent-0 after the first nested block collapses into
+    # the wrong dict.
     root = {}
-    stack = [(0, root)]
+    stack = [(-1, root)]
     for raw in text.splitlines():
         line = raw.rstrip()
         if not line.strip() or line.lstrip().startswith("#"):
@@ -138,11 +142,9 @@ def parse(text):
         val = val.strip()
         if val.startswith("\"") and val.endswith("\"") and len(val) >= 2:
             val = val[1:-1]
-        # Pop until we find the parent.
-        while stack and stack[-1][0] >= indent:
+        # Pop scopes whose indent is >= ours (they're closed now).
+        while stack[-1][0] >= indent:
             stack.pop()
-        if not stack:
-            return root
         parent = stack[-1][1]
         if val == "":
             child = {}

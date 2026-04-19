@@ -17,6 +17,15 @@ pi_undo_task() {
   fi
   local journal="$MARKER_DIR/backups/${task}.json"
   if [[ ! -f "$journal" ]]; then
+    # A task can complete without making file changes (the desired
+    # state already matched, or it only wrote new files). In that case
+    # there is nothing to restore — this is a clean no-op, not a
+    # failure. We leave the completion marker intact so re-runs stay
+    # idempotent.
+    if is_task_done "$task"; then
+      log_info "Task '$task' completed cleanly but made no file changes to undo"
+      return 0
+    fi
     log_warn "No backup journal for task '$task' at $journal"
     return 1
   fi
