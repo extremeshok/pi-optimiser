@@ -1,0 +1,26 @@
+# >>> pi-task
+# id: journald
+# version: 1.1.0
+# description: Limit systemd journal writes to RAM
+# category: storage
+# default_enabled: 1
+# power_sensitive: 0
+# <<< pi-task
+
+pi_task_register journald \
+  description="Limit systemd journal writes to RAM" \
+  category=storage \
+  version=1.1.0 \
+  default_enabled=1
+
+run_journald() {
+  mkdir -p "$(dirname "$JOURNALD_CONF_FILE")"
+  cat <<'CFG' > "$JOURNALD_CONF_FILE"
+[Journal]
+Storage=volatile
+RuntimeMaxUse=50M
+SystemMaxUse=50M
+MaxRetentionSec=1week
+CFG
+  systemctl restart systemd-journald >/dev/null 2>&1 || log_warn "systemd-journald restart failed"
+}

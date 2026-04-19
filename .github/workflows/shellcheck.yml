@@ -23,10 +23,23 @@ jobs:
           sudo apt-get install -y shellcheck
 
       - name: bash -n (syntax)
-        run: bash -n pi-optimiser.sh
+        run: |
+          bash -n pi-optimiser.sh
+          for f in lib/util/*.sh lib/tasks/*.sh lib/features/*.sh lib/ui/*.sh scripts/*.sh; do
+            [[ -f "$f" ]] && bash -n "$f"
+          done
+          bash -n install.sh
 
       - name: ShellCheck
-        run: shellcheck --severity=warning --shell=bash pi-optimiser.sh
+        run: |
+          shellcheck --severity=warning --shell=bash \
+            pi-optimiser.sh \
+            lib/util/*.sh \
+            lib/tasks/*.sh \
+            lib/features/*.sh \
+            lib/ui/*.sh \
+            scripts/*.sh \
+            install.sh
 
       - name: --help smoke test
         run: |
@@ -34,3 +47,14 @@ jobs:
           ./pi-optimiser.sh --help
           ./pi-optimiser.sh --version
           ./pi-optimiser.sh --list-tasks
+
+      - name: Build and verify release bundle
+        run: |
+          chmod +x scripts/build-bundle.sh
+          scripts/build-bundle.sh
+          # Bundle must run standalone (no lib/ dependency).
+          tmp=$(mktemp -d)
+          cp dist/pi-optimiser-bundle.sh "$tmp/pi-optimiser-bundle.sh"
+          "$tmp/pi-optimiser-bundle.sh" --version
+          "$tmp/pi-optimiser-bundle.sh" --list-tasks | wc -l
+          bash -n "$tmp/pi-optimiser-bundle.sh"

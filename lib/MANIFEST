@@ -1,0 +1,69 @@
+# pi-optimiser task manifest
+# Defines the execution order for tasks in lib/tasks/*.sh.
+# Lines are task IDs; # starts a comment; blank lines ignored.
+# Tasks present in lib/tasks/ but missing here are appended at the end
+# with a warning — drop-ins still run, just not in a curated slot.
+
+# --- Cleanup & foundations -------------------------------------------
+remove_bloat
+
+# --- Storage & filesystems -------------------------------------------
+fstab
+tmpfs_tmp
+journald
+var_log_tmpfs
+disable_swap
+zram
+fstrim
+
+# --- Kernel & runtime tuning -----------------------------------------
+sysctl
+cpu_governor
+apt_conf
+unattended
+cli_tools
+
+# --- System identity --------------------------------------------------
+locale
+timezone
+hostname
+limits
+
+# --- Display & background services -----------------------------------
+screen_blanking
+disable_services
+
+# --- Networking -------------------------------------------------------
+proxy
+dns_cache
+wifi_bt_power
+node_exporter
+tailscale
+wireguard
+
+# --- Hardware & clocks ------------------------------------------------
+boot_config
+libliftoff
+thermal_thresholds
+oc_conservative
+underclock
+pi5_fan
+pcie_gen3
+eeprom_config
+watchdog
+
+# --- Security ---------------------------------------------------------
+ssh_import
+secure_ssh
+
+# --- Packages ---------------------------------------------------------
+cli_bundle_modern
+net_diag_bundle
+smartmontools
+
+# --- Integrations -----------------------------------------------------
+docker
+
+# --- Firmware (reboot-required; runs last) ---------------------------
+eeprom_refresh
+firmware_update

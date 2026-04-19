@@ -10,11 +10,33 @@ A one-shot hardening and tuning script for **Raspberry Pi OS (Bookworm/Trixie or
 - **Auditability**: every task logs to `/var/log/pi-optimiser.log`, state lives in `/etc/pi-optimiser/state`, and backups carry timestamped `.pi-optimiser.*` suffixes.
 
 ## Quick Start
+
+**One-liner install (recommended):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/extremeshok/pi-optimiser/master/install.sh | sudo bash
+```
+The bootstrap installs into `/opt/pi-optimiser/releases/<id>/`, flips
+the `current` symlink, and drops a launcher at
+`/usr/local/sbin/pi-optimiser`. After install:
+```bash
+sudo pi-optimiser --help
+sudo pi-optimiser --report
+```
+
+**Single-file bundle (no install):**
+Download `pi-optimiser-<version>.sh` from the GitHub release page and
+run it directly; the bundle inlines every task/util/feature module.
+
+**From a git checkout:**
 ```bash
 chmod +x pi-optimiser.sh
 sudo ./pi-optimiser.sh
 ```
-Reboot afterwards so mounts, sysctl values, and firmware tweaks are applied.
+Or `sudo ./pi-optimiser.sh --migrate` to promote the checkout to an
+installed layout under `/opt/pi-optimiser/`.
+
+Reboot after the first run so mounts, sysctl values, and firmware
+tweaks are applied.
 
 Helpful commands:
 - `sudo ./pi-optimiser.sh --status` – show task history and timestamps.
@@ -132,6 +154,66 @@ Before tasks run, the script:
 4. Tests network reachability (Google DNS and Cloudflare) to warn about package installs.
 
 Power/thermal blockers skip safety-sensitive tasks (e.g., display tweaks and overclocking).
+
+## Project Layout
+From 8.0 onwards the tree is:
+
+```
+pi-optimiser.sh            Entry script
+lib/MANIFEST               Task execution order
+lib/util/*.sh              Shared helpers (14 modules)
+lib/tasks/*.sh             One file per task (42 tasks)
+lib/features/*.sh          Framework features (profile, report, snapshot, undo)
+```
+
+Task IDs are stable and map to `run_<id>` entry functions. Each task
+file starts with a `# >>> pi-task ... # <<< pi-task` metadata fence
+and calls `pi_task_register` at source time.
+
+State lives at `/etc/pi-optimiser/state.json` with a schema integer at
+`/etc/pi-optimiser/state.schema` (currently `2`). The script migrates
+pre-8.0 pipe-CSV state automatically on first run and archives the
+legacy file at `state.pi-optimiser.v1.bak`. Per-task versions are
+recorded next to each completion marker so `--status` can show when a
+task's code has moved on since it last ran.
+
+### 9.0 Flags (self-update + TUI)
+- `--update` — pull the latest commit on the configured ref (default
+  `master`, override with `PI_OPTIMISER_REF=vX.Y.Z`) via the GitHub
+  tarball API, verify with `bash -n`, stage, atomic-swap `current`.
+- `--check-update` — print installed SHA vs remote SHA without mutating
+  anything; honours `--output json`.
+- `--enable-update-timer` / `--disable-update-timer` — opt-in daily
+  systemd timer that runs `pi-optimiser --update --yes --no-tui` with
+  6h `RandomizedDelaySec`.
+- `--require-signature` — bail out of `--update` unless the release
+  tarball carries a matching `minisign` signature (verifier is shipped;
+  signing infrastructure is opt-in and not yet the default).
+- `--tui` / `--no-tui` — force or suppress the `whiptail` menu.
+  Default: TUI launches when invoked on a TTY with no action flags.
+- `--config <path>` — read a YAML config file before parsing CLI flags.
+  CLI flags still override individual keys. The TUI's **Apply** button
+  saves to `/etc/pi-optimiser/config.yaml`, which every non-TUI run
+  reads automatically.
+
+Self-update never runs implicitly — `sudo pi-optimiser` never touches
+the internet unless you pass `--update` or the timer is enabled.
+
+### 8.0 Flags
+- `--profile {kiosk,server,desktop,headless-iot}` — curated flag bundles.
+- `--report` — human-readable or `--output json` state dump.
+- `--snapshot` — tars `/etc/fstab`, boot config, sysctl, limits, sshd, etc. to `/etc/pi-optimiser/snapshots/<ts>.tgz`.
+- `--restore <tarball>` — reverse of `--snapshot` (confirms unless `--yes`).
+- `--undo <task>` — rolls back files captured during that task's last run using the journal at `/etc/pi-optimiser/backups/<task>.json`.
+- `--output {text,json}` — applies to `--status` and `--report`.
+- `--yes` / `-y` / `--non-interactive` — bypass confirmation prompts.
+
+The main script sources every file in `lib/util/`, `lib/tasks/`, and
+`lib/features/` at startup. Downloads must keep these directories
+together; the entry script fails fast with an explanatory error if any
+expected module is missing. A release bundle that inlines everything
+into a single file ships via the GitHub release page for users who
+prefer `curl | sudo bash`.
 
 ## Compatibility Notes
 - Designed for Raspberry Pi OS with systemd (Bookworm/Trixie+). Works on desktop or Lite images.
