@@ -10,10 +10,33 @@
 # CLI run with --config <file> reproduces the same session.
 # ======================================================================
 
-# Widget sizes. These play nicely with a 25x80 console.
+# Widget sizes. Defaults fit an 80x25 console; pi_tui_resize() scales
+# them up toward the real terminal size when whiptail launches, so
+# long descriptions stop getting truncated on a wide terminal.
 PI_WHIP_HEIGHT=22
 PI_WHIP_WIDTH=78
 PI_WHIP_MENU_ROWS=12
+
+# Recompute the three widget sizes from the live terminal. Clamped so
+# we never render tinier than 80x24 (unreadable) or wider than 160
+# columns (whiptail lines wrap awkwardly past that).
+pi_tui_resize() {
+  local cols lines
+  cols=$(tput cols 2>/dev/null || echo 80)
+  lines=$(tput lines 2>/dev/null || echo 24)
+  local w=$((cols - 4))
+  (( w < 78 )) && w=78
+  (( w > 160 )) && w=160
+  local h=$((lines - 2))
+  (( h < 22 )) && h=22
+  (( h > 40 )) && h=40
+  local rows=$((h - 10))
+  (( rows < 10 )) && rows=10
+  (( rows > 24 )) && rows=24
+  PI_WHIP_WIDTH=$w
+  PI_WHIP_HEIGHT=$h
+  PI_WHIP_MENU_ROWS=$rows
+}
 
 # Readable palette matching raspi-config on Pi OS.
 PI_NEWT_COLORS='
@@ -123,18 +146,32 @@ _pi_tui_category() {
   local category=$1
   local title=$2
   local -a items=()
-  local tid state_status on
+  local tid state_status on already_done
   for tid in "${PI_TASK_ORDER[@]}"; do
     if [[ "${PI_TASK_CATEGORY[$tid]}" != "$category" ]]; then
       continue
     fi
     state_status=""
+    already_done=0
     if get_task_state "$tid"; then
-      state_status=" (last ${TASK_STATE_STATUS})"
+      # Render `(completed 2026-04-19)` when we have a timestamp, else
+      # just `(completed)`. Non-"completed" statuses (failed, pending)
+      # show verbatim so operators can distinguish them at a glance.
+      if [[ "$TASK_STATE_STATUS" == "completed" ]]; then
+        already_done=1
+        local iso_date="${TASK_STATE_TIMESTAMP%%T*}"
+        if [[ -n "$iso_date" ]]; then
+          state_status=" (completed $iso_date)"
+        else
+          state_status=" (completed)"
+        fi
+      else
+        state_status=" ($TASK_STATE_STATUS)"
+      fi
     fi
     if [[ -n "${PI_TUI_SELECTED[$tid]:-}" ]]; then
       on=ON
-    elif [[ ${PI_TASK_DEFAULT[$tid]:-1} == "1" && "$state_status" != " (last completed)" ]]; then
+    elif [[ ${PI_TASK_DEFAULT[$tid]:-1} == "1" && $already_done -eq 0 ]]; then
       on=ON
     else
       on=OFF
@@ -329,6 +366,7 @@ pi_tui_main() {
     echo "pi-optimiser: whiptail not installed; cannot launch TUI." >&2
     return 1
   fi
+  pi_tui_resize
   declare -gA PI_TUI_SELECTED=()
   PI_TUI_READY_TO_RUN=0
 
