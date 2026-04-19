@@ -47,7 +47,7 @@ pi_migrate_install() {
   mkdir -p "$release_dir"
   chmod 755 "$PI_PREFIX" "$PI_PREFIX/releases"
   local item
-  for item in pi-optimiser.sh lib scripts README.md LICENSE SECURITY.md; do
+  for item in pi-optimiser.sh lib scripts README.md AGENTS.md LICENSE SECURITY.md; do
     if [[ -e "$SCRIPT_DIR/$item" ]]; then
       cp -a "$SCRIPT_DIR/$item" "$release_dir/"
     fi

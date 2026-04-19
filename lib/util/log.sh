@@ -20,7 +20,10 @@ init_logging() {
   fi
 }
 
-# Write a log message with level tag to stdout and log file.
+# Write a log message with level tag to stdout and log file. The
+# log-file append is best-effort — non-root invocations (--version,
+# --help, etc.) can't write to /var/log/pi-optimiser.log but must not
+# leak a "Permission denied" error to the user.
 log_with_level() {
   local level=$1
   shift
@@ -32,7 +35,9 @@ log_with_level() {
   else
     echo "$message"
   fi
-  echo "$message" >> "$LOG_FILE"
+  if [[ -w "$LOG_FILE" || (! -e "$LOG_FILE" && -w "$(dirname "$LOG_FILE")") ]]; then
+    echo "$message" >> "$LOG_FILE" 2>/dev/null || true
+  fi
 }
 
 log_info()  { log_with_level INFO  "$@"; }

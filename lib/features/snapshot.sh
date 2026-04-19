@@ -59,7 +59,16 @@ pi_take_snapshot() {
   fi
 
   log_info "Snapshotting ${#existing[@]} paths to $archive"
-  if tar -czf "$archive" --absolute-names "${existing[@]}" 2>/dev/null; then
+  # Exclude our own snapshots/ and backups/ dirs so the archive doesn't
+  # try to bundle itself. Also skip state.schema/state.json since they
+  # are transient state, not operator-edited config.
+  if tar -czf "$archive" --absolute-names \
+       --exclude="$PI_SNAPSHOT_DIR" \
+       --exclude="$MARKER_DIR/backups" \
+       --exclude="$MARKER_DIR/state.json" \
+       --exclude="$MARKER_DIR/state.schema" \
+       --exclude="$MARKER_DIR/state" \
+       "${existing[@]}" 2>/dev/null; then
     chmod 600 "$archive"
     log_info "Snapshot written: $archive ($(stat -c%s "$archive") bytes)"
     printf '%s\n' "$archive"
@@ -73,6 +82,10 @@ pi_restore_snapshot() {
   local archive=$1
   if [[ ! -f "$archive" ]]; then
     log_error "Snapshot file not found: $archive"
+    return 1
+  fi
+  if [[ ! -s "$archive" ]] || ! tar -tzf "$archive" >/dev/null 2>&1; then
+    log_error "Snapshot file is empty or corrupt: $archive"
     return 1
   fi
   if [[ ${PI_NON_INTERACTIVE:-0} -ne 1 ]]; then
