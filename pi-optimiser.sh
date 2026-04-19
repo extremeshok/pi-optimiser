@@ -3,7 +3,7 @@
 # Coded by Adrian Jon Kriel :: admin@extremeshok.com
 # Project home: https://github.com/extremeshok/pi-optimiser
 # ======================================================================
-# pi-optimiser.sh :: version 7.4
+# pi-optimiser.sh :: version 7.5
 #======================================================================
 # One-shot optimiser for Raspberry Pi OS desktops. Key capabilities:
 #   - Removes bundled bloatware and trims apt caches for a lean install
@@ -26,7 +26,7 @@ if [[ ${BASH_VERSINFO[0]} -lt 4 ]]; then
 fi
 
 SCRIPT_NAME=$(basename "$0")
-SCRIPT_VERSION="7.4"
+SCRIPT_VERSION="7.5"
 
 MARKER_DIR="/etc/pi-optimiser"
 STATE_FILE="$MARKER_DIR/state"
@@ -69,6 +69,13 @@ INSTALL_ZRAM=0
 REQUEST_OC_CONSERVATIVE=0
 SECURE_SSH=0
 FIRMWARE_UPDATE=0
+EEPROM_UPDATE=0
+INSTALL_WATCHDOG=0
+INSTALL_PI5_FAN_PROFILE=0
+REQUESTED_TIMEZONE=""
+REQUESTED_HOSTNAME=""
+SSH_IMPORT_GITHUB=""
+SSH_IMPORT_URL=""
 
 APT_UPDATED=0
 CURRENT_TASK=""
@@ -95,7 +102,7 @@ declare -a SUMMARY_COMPLETED=()
 declare -a SUMMARY_SKIPPED=()
 declare -a SUMMARY_FAILED=()
 # Tasks skipped if power/thermal preflight reports a blocker.
-declare -a POWER_SENSITIVE_TASKS=(boot_config libliftoff oc_conservative firmware_update eeprom_config)
+declare -a POWER_SENSITIVE_TASKS=(boot_config libliftoff oc_conservative firmware_update eeprom_config eeprom_refresh pi5_fan watchdog)
 TASK_WAS_SKIPPED=0
 TASK_SKIP_REASON=""
 
@@ -106,7 +113,7 @@ TASK_STATE_DESC=""
 # Print command usage information.
 usage() {
   cat <<USAGE
-Usage: sudo ./$(basename "$SCRIPT_NAME") [options]
+Usage: sudo ./$SCRIPT_NAME [options]
 
 Options:
   --force                Re-run tasks even if already completed
@@ -124,6 +131,13 @@ Options:
   --overclock-conservative Enable CPU/GPU overclock profile (Pi 5/500 2.8 GHz, 4/400/3/Zero 2 firmware-safe)
   --secure-ssh           Harden sshd config and enable fail2ban protection
   --firmware-update      Run rpi-update non-interactively to install latest firmware
+  --eeprom-update        Refresh Raspberry Pi bootloader EEPROM via rpi-eeprom-update
+  --enable-watchdog      Enable hardware watchdog (dtparam=watchdog=on + systemd)
+  --pi5-fan-profile      Apply a Pi 5 PWM fan curve (temps 50/60/67/75 C)
+  --timezone <tz>        Set system timezone (e.g. Europe/London)
+  --hostname <name>      Set system hostname
+  --ssh-import-github <u> Append authorized_keys from https://github.com/<u>.keys
+  --ssh-import-url <url> Append authorized_keys from a https://... URL
   --keep-screen-blanking Keep default desktop blanking behaviour
   --help                 Show this help message and exit
   --version              Print script version and exit
@@ -741,6 +755,47 @@ parse_args() {
       --firmware-update)
         FIRMWARE_UPDATE=1
         ;;
+      --eeprom-update)
+        EEPROM_UPDATE=1
+        ;;
+      --enable-watchdog)
+        INSTALL_WATCHDOG=1
+        ;;
+      --pi5-fan-profile)
+        INSTALL_PI5_FAN_PROFILE=1
+        ;;
+      --timezone)
+        if [[ $# -lt 2 ]]; then
+          echo "--timezone requires a zone name" >&2
+          exit 1
+        fi
+        REQUESTED_TIMEZONE=$2
+        shift
+        ;;
+      --hostname)
+        if [[ $# -lt 2 ]]; then
+          echo "--hostname requires a name" >&2
+          exit 1
+        fi
+        REQUESTED_HOSTNAME=$2
+        shift
+        ;;
+      --ssh-import-github)
+        if [[ $# -lt 2 ]]; then
+          echo "--ssh-import-github requires a GitHub username" >&2
+          exit 1
+        fi
+        SSH_IMPORT_GITHUB=$2
+        shift
+        ;;
+      --ssh-import-url)
+        if [[ $# -lt 2 ]]; then
+          echo "--ssh-import-url requires a URL" >&2
+          exit 1
+        fi
+        SSH_IMPORT_URL=$2
+        shift
+        ;;
       --keep-screen-blanking)
         KEEP_SCREEN_BLANKING=1
         ;;
@@ -818,8 +873,20 @@ detect_boot_device() {
   esac
 }
 
+# Resolve the firmware config.txt / cmdline.txt paths, falling back to the
+# pre-Bookworm /boot/* locations when /boot/firmware/ isn't mounted.
+detect_boot_paths() {
+  if [[ ! -f /boot/firmware/config.txt && -f /boot/config.txt ]]; then
+    CONFIG_TXT_FILE=/boot/config.txt
+  fi
+  if [[ ! -f /boot/firmware/cmdline.txt && -f /boot/cmdline.txt ]]; then
+    CMDLINE_FILE=/boot/cmdline.txt
+  fi
+}
+
 # Collect model, RAM, kernel, firmware, and boot medium details.
 gather_system_info() {
+  detect_boot_paths
   if [[ -r /proc/device-tree/model ]]; then
     SYSTEM_MODEL=$(tr -d '\0' </proc/device-tree/model | tr -d '\n' || true)
   fi
@@ -855,8 +922,7 @@ gather_system_info() {
   fi
   detect_boot_device
 
-  log_info "Detected hardware model: ${SYSTEM_MODEL:-unknown}" \
-    " (Pi generation: ${SYSTEM_PI_GEN:-unknown}, RAM: ${SYSTEM_RAM_MB} MB)"
+  log_info "Detected hardware model: ${SYSTEM_MODEL:-unknown} (Pi generation: ${SYSTEM_PI_GEN:-unknown}, RAM: ${SYSTEM_RAM_MB} MB)"
   log_info "Kernel: ${SYSTEM_KERNEL:-unknown}; Firmware: ${SYSTEM_FIRMWARE:-unknown}"
   if [[ -n "$SYSTEM_BOOT_DEVICE" ]]; then
     log_info "Root filesystem appears to run from: $SYSTEM_BOOT_DEVICE"
@@ -1021,14 +1087,21 @@ determine_zram_target_mb() {
 }
 
 # Perform apt-get update at most once per run.
+# Swallows failures and logs a warning; callers proceed with cached package lists.
 apt_update_once() {
   if [[ $APT_UPDATED -eq 0 ]]; then
     if [[ ${NETWORK_AVAILABLE:-1} -eq 0 ]]; then
       log_warn "Network connectivity previously reported as unavailable; attempting apt-get update regardless"
     fi
-    DEBIAN_FRONTEND=noninteractive apt-get update
-    APT_UPDATED=1
+    local rc=0
+    DEBIAN_FRONTEND=noninteractive apt-get update || rc=$?
+    if [[ $rc -eq 0 ]]; then
+      APT_UPDATED=1
+    else
+      log_warn "apt-get update failed (rc=$rc); proceeding with cached package lists"
+    fi
   fi
+  return 0
 }
 
 # Install missing packages via apt-get when required.
@@ -1141,7 +1214,7 @@ task_remove_bloat_packages() {
 
 # Apply noatime and commit adjustments to root filesystem entry.
 task_tune_fstab() {
-  if grep -E "^\s*[^#]+\s+/\s+[^\s]+\s+[^\s]+\s+[^\s]*noatime" /etc/fstab >/dev/null; then
+  if grep -E "^[[:space:]]*[^#[:space:]]+[[:space:]]+/[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]]*noatime" /etc/fstab >/dev/null; then
     log_info "Root filesystem already has noatime configured"
   else
     backup_file /etc/fstab
@@ -1378,6 +1451,20 @@ task_configure_unattended_upgrades() {
   ensure_packages unattended-upgrades
   local os_origin=${OS_ID^}
   local codename=$OS_CODENAME
+  local uu_bin
+  uu_bin=$(command -v unattended-upgrade || true)
+  if [[ -z "$uu_bin" ]]; then
+    if [[ -x /usr/bin/unattended-upgrade ]]; then
+      uu_bin=/usr/bin/unattended-upgrade
+    elif [[ -x /usr/sbin/unattended-upgrade ]]; then
+      uu_bin=/usr/sbin/unattended-upgrade
+    else
+      log_warn "unattended-upgrade binary not found; skipping timer setup"
+      TASK_WAS_SKIPPED=1
+      TASK_SKIP_REASON="$CURRENT_TASK (unattended-upgrade binary missing)"
+      return 0
+    fi
+  fi
   cat <<CFG > "$UNATTENDED_CONF_FILE"
 Unattended-Upgrade::Origins-Pattern {
         "origin=${os_origin},codename=${codename}-security";
@@ -1391,7 +1478,7 @@ Unattended-Upgrade::MinimalSteps "true";
 Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
 Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
 CFG
-  cat <<'CFG' > "$UNATTENDED_SERVICE"
+  cat <<CFG > "$UNATTENDED_SERVICE"
 [Unit]
 Description=Run unattended-upgrades (pi-optimiser)
 Documentation=man:unattended-upgrade(8)
@@ -1400,7 +1487,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/unattended-upgrade --quiet
+ExecStart=${uu_bin} --quiet
 SuccessExitStatus=0 2
 CFG
   cat <<'CFG' > "$UNATTENDED_TIMER"
@@ -1544,14 +1631,28 @@ server {
     }
 }
 EOF
+  local default_link=/etc/nginx/sites-enabled/default
+  local default_target=""
+  if [[ -L "$default_link" ]]; then
+    default_target=$(readlink "$default_link")
+  elif [[ -f "$default_link" ]]; then
+    default_target="$default_link"
+  fi
+
   ln -sf "$conf" "$enabled"
-  rm -f /etc/nginx/sites-enabled/default
+  rm -f "$default_link"
+
   if ! nginx -t >/dev/null 2>&1; then
-    log_warn "nginx configuration test failed; check $conf"
+    log_warn "nginx configuration test failed; reverting proxy site"
+    rm -f "$enabled"
+    if [[ -n "$default_target" ]]; then
+      ln -sf "$default_target" "$default_link" 2>/dev/null || true
+    fi
     TASK_WAS_SKIPPED=1
     TASK_SKIP_REASON="$CURRENT_TASK (nginx config failed validation)"
     return 0
   fi
+
   systemctl enable --now nginx >/dev/null 2>&1 || log_warn "Unable to enable nginx service"
   systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1 || log_warn "Unable to reload nginx"
   write_json_field "$CONFIG_OPTIMISER_STATE" "proxy.backend" "$PROXY_BACKEND"
@@ -1635,8 +1736,19 @@ task_setup_tailscale() {
   mkdir -p "$key_dir" "$list_dir"
   key_url="https://pkgs.tailscale.com/stable/${repo_id}/${repo_suite}.noarmor.gpg"
   if ! curl -fsSL "$key_url" | gpg --dearmor > "$TAILSCALE_KEY_FILE"; then
-    log_error "Failed to download Tailscale signing key from $key_url"
-    return 1
+    if [[ $repo_suite != "bookworm" ]]; then
+      local fallback_url="https://pkgs.tailscale.com/stable/${repo_id}/bookworm.noarmor.gpg"
+      log_warn "Tailscale key for $repo_suite unavailable; falling back to bookworm"
+      if curl -fsSL "$fallback_url" | gpg --dearmor > "$TAILSCALE_KEY_FILE"; then
+        repo_suite=bookworm
+      else
+        log_error "Failed to download Tailscale signing key from $fallback_url"
+        return 1
+      fi
+    else
+      log_error "Failed to download Tailscale signing key from $key_url"
+      return 1
+    fi
   fi
   chmod 644 "$TAILSCALE_KEY_FILE"
   cat <<EOF > "$TAILSCALE_LIST_FILE"
@@ -1691,8 +1803,15 @@ task_install_docker() {
   fi
 
   if [[ $repo_configured -eq 1 ]]; then
+    local docker_suite=$OS_CODENAME
+    if ! curl -fsI "https://download.docker.com/linux/${repo_id}/dists/${docker_suite}/Release" >/dev/null 2>&1; then
+      if [[ $docker_suite != "bookworm" ]]; then
+        log_warn "Docker repo for $docker_suite unavailable; falling back to bookworm"
+        docker_suite=bookworm
+      fi
+    fi
     cat <<EOF > "$DOCKER_LIST_FILE"
-deb [arch=$arch signed-by=$DOCKER_KEY_FILE] https://download.docker.com/linux/${repo_id} $OS_CODENAME stable
+deb [arch=$arch signed-by=$DOCKER_KEY_FILE] https://download.docker.com/linux/${repo_id} $docker_suite stable
 EOF
     chmod 644 "$DOCKER_LIST_FILE"
   fi
@@ -1789,7 +1908,8 @@ task_mount_var_log_tmpfs() {
       journalctl --vacuum-time=1s >/dev/null 2>&1 || true
     fi
     if find /var/log/journal -mindepth 1 -print -quit 2>/dev/null | grep -q .; then
-      local backup_tar=/var/log.journal-backup.pi-optimiser.$(date +%Y%m%d%H%M%S).tar.gz
+      local backup_tar
+      backup_tar=/var/log.journal-backup.pi-optimiser.$(date +%Y%m%d%H%M%S).tar.gz
       if tar -czf "$backup_tar" -C /var/log journal >/dev/null 2>&1; then
         log_info "Archived existing journal to $backup_tar"
         rm -rf /var/log/journal/* 2>/dev/null || true
@@ -2018,8 +2138,8 @@ task_configure_conservative_oc() {
   backup_file "$CONFIG_TXT_FILE"
   local applied=0 entry safe_key rc
   for entry in "${entries[@]}"; do
-    ensure_config_key_value "$entry" "$CONFIG_TXT_FILE"
-    rc=$?
+    rc=0
+    ensure_config_key_value "$entry" "$CONFIG_TXT_FILE" || rc=$?
     if [[ $rc -eq 0 ]]; then
       log_info "Applied $entry to config.txt"
       safe_key=${entry//=/_}
@@ -2055,21 +2175,7 @@ task_secure_ssh() {
     return 0
   fi
 
-  backup_file "$ssh_config"
-  update_sshd_config_option "PermitRootLogin" "no"
-  update_sshd_config_option "PasswordAuthentication" "yes"
-  update_sshd_config_option "ChallengeResponseAuthentication" "no"
-  update_sshd_config_option "UsePAM" "yes"
-
-  if ! sshd -t -f "$ssh_config" >/dev/null 2>&1; then
-    log_error "sshd configuration validation failed after hardening"
-    return 1
-  fi
-
-  if systemctl list-unit-files ssh.service >/dev/null 2>&1; then
-    systemctl reload ssh >/dev/null 2>&1 || systemctl restart ssh >/dev/null 2>&1 || log_warn "Unable to reload ssh service"
-  fi
-
+  # Stage fail2ban first so brute-force protection is live before sshd reloads.
   ensure_packages fail2ban
   local jail_dir=/etc/fail2ban/jail.d
   local jail_file=$jail_dir/pi-optimiser-ssh.conf
@@ -2087,6 +2193,21 @@ JAIL
 
   systemctl enable --now fail2ban >/dev/null 2>&1 || log_warn "Unable to enable fail2ban service"
   systemctl restart fail2ban >/dev/null 2>&1 || true
+
+  backup_file "$ssh_config"
+  update_sshd_config_option "PermitRootLogin" "no"
+  update_sshd_config_option "PasswordAuthentication" "yes"
+  update_sshd_config_option "ChallengeResponseAuthentication" "no"
+  update_sshd_config_option "UsePAM" "yes"
+
+  if ! sshd -t -f "$ssh_config" >/dev/null 2>&1; then
+    log_error "sshd configuration validation failed after hardening"
+    return 1
+  fi
+
+  if systemctl list-unit-files ssh.service >/dev/null 2>&1; then
+    systemctl reload ssh >/dev/null 2>&1 || systemctl restart ssh >/dev/null 2>&1 || log_warn "Unable to reload ssh service"
+  fi
 
   write_json_field "$CONFIG_OPTIMISER_STATE" "security.ssh.permit_root" "no"
   write_json_field "$CONFIG_OPTIMISER_STATE" "security.ssh.fail2ban" "enabled"
@@ -2219,7 +2340,8 @@ PY
     return 0
   fi
 
-  local backup_path="$EEPROM_STAGING_DIR/boot.conf.$(date +%Y%m%d%H%M%S).bak"
+  local backup_path
+  backup_path="$EEPROM_STAGING_DIR/boot.conf.$(date +%Y%m%d%H%M%S).bak"
   cp "$current_conf" "$backup_path" 2>/dev/null || true
 
   if rpi-eeprom-config --apply "$new_conf" >/dev/null 2>&1; then
@@ -2276,6 +2398,357 @@ task_firmware_update() {
 }
 
 
+# Enable fstrim.timer for periodic TRIM on SSD/NVMe/eMMC roots.
+task_enable_fstrim() {
+  if ! systemctl list-unit-files fstrim.timer >/dev/null 2>&1; then
+    log_info "fstrim.timer unit not available; skipping"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (fstrim.timer missing)"
+    return 0
+  fi
+  if ! systemctl enable --now fstrim.timer >/dev/null 2>&1; then
+    log_warn "Unable to enable fstrim.timer"
+    return 1
+  fi
+  log_info "Enabled fstrim.timer for weekly SSD/NVMe TRIM"
+  write_json_field "$CONFIG_OPTIMISER_STATE" "fstrim.enabled" "true"
+}
+
+
+# Set the system timezone when requested via --timezone.
+task_configure_timezone() {
+  if [[ -z "$REQUESTED_TIMEZONE" ]]; then
+    log_info "No timezone requested; skipping"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (not requested)"
+    return 0
+  fi
+  if [[ ! -f "/usr/share/zoneinfo/$REQUESTED_TIMEZONE" ]]; then
+    log_error "Timezone '$REQUESTED_TIMEZONE' not found under /usr/share/zoneinfo"
+    return 1
+  fi
+  if command -v timedatectl >/dev/null 2>&1; then
+    if ! timedatectl set-timezone "$REQUESTED_TIMEZONE" >/dev/null 2>&1; then
+      log_error "timedatectl failed to set timezone to $REQUESTED_TIMEZONE"
+      return 1
+    fi
+  else
+    ln -sf "/usr/share/zoneinfo/$REQUESTED_TIMEZONE" /etc/localtime
+    echo "$REQUESTED_TIMEZONE" > /etc/timezone
+  fi
+  log_info "System timezone set to $REQUESTED_TIMEZONE"
+  write_json_field "$CONFIG_OPTIMISER_STATE" "timezone.name" "$REQUESTED_TIMEZONE"
+}
+
+
+# Set the system hostname when requested via --hostname.
+task_configure_hostname() {
+  if [[ -z "$REQUESTED_HOSTNAME" ]]; then
+    log_info "No hostname requested; skipping"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (not requested)"
+    return 0
+  fi
+  if ! [[ $REQUESTED_HOSTNAME =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]]; then
+    log_error "Invalid hostname '$REQUESTED_HOSTNAME' (must be RFC 1123 label)"
+    return 1
+  fi
+  local old_hostname
+  old_hostname=$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo "raspberrypi")
+  if command -v hostnamectl >/dev/null 2>&1; then
+    hostnamectl set-hostname "$REQUESTED_HOSTNAME"
+  else
+    echo "$REQUESTED_HOSTNAME" > /etc/hostname
+    hostname "$REQUESTED_HOSTNAME" >/dev/null 2>&1 || true
+  fi
+  if [[ -f /etc/hosts ]]; then
+    backup_file /etc/hosts
+    OLD_HN="$old_hostname" NEW_HN="$REQUESTED_HOSTNAME" python3 <<'PY'
+import os
+from pathlib import Path
+path = Path('/etc/hosts')
+old = os.environ['OLD_HN']
+new = os.environ['NEW_HN']
+lines = path.read_text().splitlines()
+out = []
+for line in lines:
+    stripped = line.strip()
+    if stripped.startswith('127.0.1.1'):
+        parts = line.split()
+        if len(parts) >= 2:
+            parts = [parts[0], new] + [p for p in parts[2:] if p != old]
+            out.append('\t'.join(parts))
+            continue
+    out.append(line)
+have_127_0_1_1 = any(l.strip().startswith('127.0.1.1') for l in out)
+if not have_127_0_1_1:
+    out.append(f"127.0.1.1\t{new}")
+path.write_text('\n'.join(out) + '\n')
+PY
+  fi
+  log_info "System hostname set to $REQUESTED_HOSTNAME"
+  write_json_field "$CONFIG_OPTIMISER_STATE" "hostname.name" "$REQUESTED_HOSTNAME"
+}
+
+
+# Import authorized_keys from a GitHub user and/or arbitrary HTTPS URL.
+task_ssh_import_keys() {
+  if [[ -z "$SSH_IMPORT_GITHUB" && -z "$SSH_IMPORT_URL" ]]; then
+    log_info "No SSH key import requested; skipping"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (not requested)"
+    return 0
+  fi
+  ensure_packages curl ca-certificates
+  local target_user=${SUDO_USER:-}
+  if [[ -z "$target_user" || "$target_user" == "root" ]]; then
+    target_user=$(getent passwd 1000 2>/dev/null | cut -d: -f1)
+  fi
+  if [[ -z "$target_user" ]]; then
+    log_warn "Unable to determine target user for SSH key import"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (no target user)"
+    return 0
+  fi
+  local home_dir
+  home_dir=$(getent passwd "$target_user" | cut -d: -f6)
+  if [[ -z "$home_dir" || ! -d "$home_dir" ]]; then
+    log_warn "Home directory for $target_user not found"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (home missing)"
+    return 0
+  fi
+  local ssh_dir="$home_dir/.ssh"
+  local authorized="$ssh_dir/authorized_keys"
+  mkdir -p "$ssh_dir"
+  chmod 700 "$ssh_dir"
+  touch "$authorized"
+  chmod 600 "$authorized"
+  chown -R "$target_user:$target_user" "$ssh_dir"
+
+  local tmp_keys
+  tmp_keys=$(mktemp)
+  local imported=0
+
+  if [[ -n "$SSH_IMPORT_GITHUB" ]]; then
+    local gh_url="https://github.com/${SSH_IMPORT_GITHUB}.keys"
+    if curl -fsSL "$gh_url" -o "$tmp_keys" && [[ -s "$tmp_keys" ]]; then
+      KEYS_FILE="$tmp_keys" AUTH_FILE="$authorized" SRC="github:$SSH_IMPORT_GITHUB" python3 <<'PY'
+import os
+from pathlib import Path
+keys = Path(os.environ['KEYS_FILE']).read_text().splitlines()
+auth = Path(os.environ['AUTH_FILE'])
+existing = set()
+if auth.exists():
+    for line in auth.read_text().splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith('#'):
+            existing.add(stripped.split()[-1] if len(stripped.split()) >= 3 else stripped)
+added = []
+for key in keys:
+    key = key.strip()
+    if not key or key.startswith('#'):
+        continue
+    parts = key.split()
+    marker = parts[-1] if len(parts) >= 3 else key
+    if marker in existing:
+        continue
+    added.append(key)
+    existing.add(marker)
+if added:
+    with auth.open('a') as fh:
+        fh.write(f"\n# pi-optimiser import: {os.environ['SRC']}\n")
+        for k in added:
+            fh.write(k + "\n")
+print(len(added))
+PY
+      imported=1
+      log_info "Imported SSH keys from $gh_url into $authorized"
+    else
+      log_warn "Failed to fetch GitHub keys from $gh_url"
+    fi
+  fi
+
+  if [[ -n "$SSH_IMPORT_URL" ]]; then
+    if [[ $SSH_IMPORT_URL != https://* ]]; then
+      log_error "--ssh-import-url must use https://"
+      rm -f "$tmp_keys"
+      return 1
+    fi
+    if curl -fsSL "$SSH_IMPORT_URL" -o "$tmp_keys" && [[ -s "$tmp_keys" ]]; then
+      KEYS_FILE="$tmp_keys" AUTH_FILE="$authorized" SRC="url:$SSH_IMPORT_URL" python3 <<'PY'
+import os
+from pathlib import Path
+keys = Path(os.environ['KEYS_FILE']).read_text().splitlines()
+auth = Path(os.environ['AUTH_FILE'])
+existing = set()
+if auth.exists():
+    for line in auth.read_text().splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith('#'):
+            existing.add(stripped.split()[-1] if len(stripped.split()) >= 3 else stripped)
+added = []
+for key in keys:
+    key = key.strip()
+    if not key or key.startswith('#'):
+        continue
+    parts = key.split()
+    marker = parts[-1] if len(parts) >= 3 else key
+    if marker in existing:
+        continue
+    added.append(key)
+    existing.add(marker)
+if added:
+    with auth.open('a') as fh:
+        fh.write(f"\n# pi-optimiser import: {os.environ['SRC']}\n")
+        for k in added:
+            fh.write(k + "\n")
+PY
+      imported=1
+      log_info "Imported SSH keys from $SSH_IMPORT_URL into $authorized"
+    else
+      log_warn "Failed to fetch keys from $SSH_IMPORT_URL"
+    fi
+  fi
+
+  rm -f "$tmp_keys"
+  chown "$target_user:$target_user" "$authorized"
+  chmod 600 "$authorized"
+
+  if [[ $imported -eq 0 ]]; then
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (no keys imported)"
+  else
+    write_json_field "$CONFIG_OPTIMISER_STATE" "ssh.keys_imported_for" "$target_user"
+  fi
+}
+
+
+# Enable the Raspberry Pi hardware watchdog and wire systemd to feed it.
+task_enable_watchdog() {
+  if [[ $INSTALL_WATCHDOG -eq 0 ]]; then
+    log_info "Hardware watchdog not requested; skipping"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (not requested)"
+    return 0
+  fi
+  if [[ ! -f "$CONFIG_TXT_FILE" ]]; then
+    log_warn "config.txt not present; cannot enable watchdog"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (config.txt missing)"
+    return 0
+  fi
+  backup_file "$CONFIG_TXT_FILE"
+  local rc=0
+  ensure_config_key_value "dtparam=watchdog=on" "$CONFIG_TXT_FILE" || rc=$?
+  if [[ $rc -eq 0 ]]; then
+    log_info "Enabled dtparam=watchdog=on in config.txt"
+  elif [[ $rc -gt 1 ]]; then
+    log_warn "Failed to set watchdog dtparam"
+  fi
+
+  local watchdog_dir=/etc/systemd/system.conf.d
+  mkdir -p "$watchdog_dir"
+  cat <<'CFG' > "$watchdog_dir/99-pi-optimiser-watchdog.conf"
+[Manager]
+RuntimeWatchdogSec=15
+ShutdownWatchdogSec=10min
+CFG
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  log_info "Configured systemd RuntimeWatchdogSec=15; active after reboot"
+  write_json_field "$CONFIG_OPTIMISER_STATE" "watchdog.enabled" "true"
+}
+
+
+# Apply a Pi 5 PWM fan curve to config.txt (temperatures in millidegrees).
+task_configure_pi5_fan_profile() {
+  if [[ $INSTALL_PI5_FAN_PROFILE -eq 0 ]]; then
+    log_info "Pi 5 fan profile not requested; skipping"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (not requested)"
+    return 0
+  fi
+  local model_lower=${SYSTEM_MODEL,,}
+  if ! pi_is_generation 5 && [[ $model_lower != *"raspberry pi 500"* ]]; then
+    log_info "Pi 5 fan profile only applies to Pi 5/500; skipping"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (model unsupported)"
+    return 0
+  fi
+  if [[ ! -f "$CONFIG_TXT_FILE" ]]; then
+    log_warn "config.txt not present; cannot apply fan profile"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (config.txt missing)"
+    return 0
+  fi
+  backup_file "$CONFIG_TXT_FILE"
+  local -a entries=(
+    "dtparam=fan_temp0=50000"
+    "dtparam=fan_temp0_hyst=5000"
+    "dtparam=fan_temp0_speed=75"
+    "dtparam=fan_temp1=60000"
+    "dtparam=fan_temp1_hyst=5000"
+    "dtparam=fan_temp1_speed=125"
+    "dtparam=fan_temp2=67000"
+    "dtparam=fan_temp2_hyst=5000"
+    "dtparam=fan_temp2_speed=200"
+    "dtparam=fan_temp3=75000"
+    "dtparam=fan_temp3_hyst=5000"
+    "dtparam=fan_temp3_speed=255"
+  )
+  local entry rc applied=0
+  for entry in "${entries[@]}"; do
+    rc=0
+    ensure_config_key_value "$entry" "$CONFIG_TXT_FILE" || rc=$?
+    if [[ $rc -eq 0 ]]; then
+      applied=1
+    elif [[ $rc -gt 1 ]]; then
+      log_warn "Failed to apply $entry"
+    fi
+  done
+  if [[ $applied -eq 1 ]]; then
+    log_info "Applied Pi 5 PWM fan curve (50/60/67/75 C)"
+  else
+    log_info "Pi 5 fan curve already present"
+  fi
+  write_json_field "$CONFIG_OPTIMISER_STATE" "fan.profile" "pi5_50_60_67_75"
+}
+
+
+# Refresh the Raspberry Pi bootloader EEPROM via rpi-eeprom-update.
+task_eeprom_update() {
+  if [[ $EEPROM_UPDATE -eq 0 ]]; then
+    log_info "Bootloader EEPROM update not requested; skipping"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (not requested)"
+    return 0
+  fi
+  if ! command -v rpi-eeprom-update >/dev/null 2>&1; then
+    log_warn "rpi-eeprom-update not available; skipping"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (rpi-eeprom-update missing)"
+    return 0
+  fi
+  if [[ ${NETWORK_AVAILABLE:-1} -eq 0 ]]; then
+    log_warn "Network unavailable; skipping rpi-eeprom-update"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (network unavailable)"
+    return 0
+  fi
+
+  local out rc=0
+  out=$(rpi-eeprom-update -a 2>&1) || rc=$?
+  if [[ $rc -eq 0 ]]; then
+    log_info "rpi-eeprom-update -a completed; reboot required to apply new EEPROM"
+    write_json_field "$CONFIG_OPTIMISER_STATE" "eeprom.last_update" "$(date --iso-8601=seconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')"
+    return 0
+  fi
+  log_warn "rpi-eeprom-update returned exit code $rc"
+  log_warn "Output: $out"
+  return 1
+}
+
+
 TASK_DEFS=(
   "remove_bloat:task_remove_bloat_packages:Remove bundled educational/demo packages"
   "fstab:task_tune_fstab:Tune filesystem mounts for reduced writes"
@@ -2283,6 +2756,7 @@ TASK_DEFS=(
   "var_log_tmpfs:task_mount_var_log_tmpfs:Keep /var/log in RAM to reduce writes"
   "disable_swap:task_disable_swap:Disable swap file service (requires 2GB+ RAM recommended)"
   "zram:task_configure_zram:Configure compressed ZRAM swap sized to system memory"
+  "fstrim:task_enable_fstrim:Enable weekly fstrim.timer for SSD/NVMe TRIM"
   "journald:task_configure_journald:Limit systemd journal writes to RAM"
   "sysctl:task_configure_sysctl:Tune kernel memory and writeback behaviour"
   "cpu_governor:task_configure_cpu_governor:Pin CPU scaling governor to performance via systemd"
@@ -2290,6 +2764,8 @@ TASK_DEFS=(
   "unattended:task_configure_unattended_upgrades:Enable unattended security upgrades (6h cadence)"
   "cli_tools:task_install_cli_tools:Ensure essential CLI tools are installed"
   "locale:task_configure_locale:Set default system locale"
+  "timezone:task_configure_timezone:Set system timezone when --timezone is provided"
+  "hostname:task_configure_hostname:Set system hostname when --hostname is provided"
   "limits:task_configure_limits:Raise system file and process limits"
   "screen_blanking:task_disable_screen_blanking:Disable console and desktop screen blanking"
   "disable_services:task_disable_services:Disable non-essential background services"
@@ -2298,9 +2774,13 @@ TASK_DEFS=(
   "libliftoff:task_disable_libliftoff_overlays:Ensure vc4 KMS overlays keep liftoff disabled"
   "oc_conservative:task_configure_conservative_oc:Apply Raspberry Pi overclock profile (Pi 5/500 2.8 GHz)"
   "eeprom_config:task_configure_eeprom:Tune Raspberry Pi EEPROM SDRAM_BANKLOW for Pi 4/400/5/500"
+  "pi5_fan:task_configure_pi5_fan_profile:Apply Pi 5 PWM fan curve when --pi5-fan-profile is provided"
+  "watchdog:task_enable_watchdog:Enable hardware watchdog when --enable-watchdog is provided"
+  "ssh_import:task_ssh_import_keys:Import SSH authorized_keys from GitHub/URL"
   "secure_ssh:task_secure_ssh:Harden sshd configuration and enable fail2ban"
   "tailscale:task_setup_tailscale:Install and enable Tailscale"
   "docker:task_install_docker:Install Docker Engine and enable service"
+  "eeprom_refresh:task_eeprom_update:Refresh bootloader EEPROM via rpi-eeprom-update (opt-in)"
   "firmware_update:task_firmware_update:Run rpi-update non-interactively (opt-in)"
 )
 
@@ -2359,6 +2839,36 @@ main() {
     if [[ "$task" == "firmware_update" && $FIRMWARE_UPDATE -eq 0 ]]; then
       log_info "Skipping firmware_update task (enable with --firmware-update)"
       SUMMARY_SKIPPED+=("$task (firmware update not requested)")
+      continue
+    fi
+    if [[ "$task" == "eeprom_refresh" && $EEPROM_UPDATE -eq 0 ]]; then
+      log_info "Skipping eeprom_refresh task (enable with --eeprom-update)"
+      SUMMARY_SKIPPED+=("$task (eeprom update not requested)")
+      continue
+    fi
+    if [[ "$task" == "watchdog" && $INSTALL_WATCHDOG -eq 0 ]]; then
+      log_info "Skipping watchdog task (enable with --enable-watchdog)"
+      SUMMARY_SKIPPED+=("$task (watchdog not requested)")
+      continue
+    fi
+    if [[ "$task" == "pi5_fan" && $INSTALL_PI5_FAN_PROFILE -eq 0 ]]; then
+      log_info "Skipping pi5_fan task (enable with --pi5-fan-profile)"
+      SUMMARY_SKIPPED+=("$task (fan profile not requested)")
+      continue
+    fi
+    if [[ "$task" == "ssh_import" && -z "$SSH_IMPORT_GITHUB" && -z "$SSH_IMPORT_URL" ]]; then
+      log_info "Skipping ssh_import task (enable with --ssh-import-github or --ssh-import-url)"
+      SUMMARY_SKIPPED+=("$task (ssh import not requested)")
+      continue
+    fi
+    if [[ "$task" == "timezone" && -z "$REQUESTED_TIMEZONE" ]]; then
+      log_info "Skipping timezone task (enable with --timezone <tz>)"
+      SUMMARY_SKIPPED+=("$task (timezone not requested)")
+      continue
+    fi
+    if [[ "$task" == "hostname" && -z "$REQUESTED_HOSTNAME" ]]; then
+      log_info "Skipping hostname task (enable with --hostname <name>)"
+      SUMMARY_SKIPPED+=("$task (hostname not requested)")
       continue
     fi
     if [[ "$task" == "zram" ]]; then

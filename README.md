@@ -39,6 +39,13 @@ Helpful commands:
 | `--overclock-conservative` | Apply CPU/GPU overclock profile (Pi 5/500 runs at 2.8 GHz with `over_voltage_delta=30000`; other models use firmware-safe clocks). Requires healthy power. |
 | `--secure-ssh` | Disable root SSH login, keep user passwords, and enable fail2ban. |
 | `--firmware-update` | Run `rpi-update` non-interactively (`SKIP_WARNING=1`) to pull the latest Raspberry Pi firmware. Reboot required. |
+| `--eeprom-update` | Refresh the Pi 4/5 bootloader EEPROM via `rpi-eeprom-update -a`. Reboot required. |
+| `--enable-watchdog` | Add `dtparam=watchdog=on` to config.txt and wire systemd `RuntimeWatchdogSec=15`. Reboot required. |
+| `--pi5-fan-profile` | Apply a Pi 5 PWM fan curve (50/60/67/75 C) via `dtparam=fan_temp*`. Pi 5/500 only. |
+| `--timezone <tz>` | Set the system timezone via `timedatectl set-timezone`. |
+| `--hostname <name>` | Set the system hostname and update `/etc/hosts`. |
+| `--ssh-import-github <user>` | Append `https://github.com/<user>.keys` to the login user's `authorized_keys`. |
+| `--ssh-import-url <url>` | Append a remote `https://…` key list to the login user's `authorized_keys`. |
 | `--keep-screen-blanking` | Preserve default screen blanking. |
 | `--help` / `--version` | Self-explanatory. |
 
@@ -58,6 +65,7 @@ The script executes these tasks in order unless skipped. **Optional** tasks requ
 | `var_log_tmpfs` | Move `/var/log` to tmpfs (50 MB) and recreate structure via tmpfiles. |
 | `disable_swap` | Disable `dphys-swapfile` and turn off swap. |
 | `zram` † | Configure compressed swap (requires `--install-zram`; override/disable with `--zram-algo`). |
+| `fstrim` | Enable `fstrim.timer` for periodic SSD/NVMe TRIM. |
 | `journald` | Keep the journal in RAM with 50 MB runtime limit. |
 | `sysctl` | Apply writeback, swappiness, inotify, and net backlog tweaks. |
 | `cpu_governor` | Install a systemd unit that pins the CPU scaling governor to `performance` on every boot. |
@@ -65,17 +73,23 @@ The script executes these tasks in order unless skipped. **Optional** tasks requ
 | `unattended` | Configure security-only unattended upgrades on a 6‑hour timer. |
 | `cli_tools` | Install useful CLI utilities (`htop`, `tmux`, `pigz`, etc.). |
 | `locale` | Set `/etc/default/locale` when `--locale` is provided. |
+| `timezone` † | Set the system timezone when `--timezone` is provided. |
+| `hostname` † | Set the system hostname when `--hostname` is provided. |
 | `limits` | Raise user/system file descriptor and process limits. |
 | `screen_blanking` | Disable console + LightDM blanking (unless `--keep-screen-blanking`). |
-| `disable_services` | Turn off non-essential services (Bluetooth, avahi-daemon, cups, etc.). |
+| `disable_services` | Turn off non-essential services: `triggerhappy`, `bluetooth`, `hciuart`, `avahi-daemon`, `cups`, `rsyslog` (journald keeps all logs). |
 | `proxy` † | Manage the NGINX reverse proxy (`--proxy-backend URL` or disable). |
 | `boot_config` † | Apply display-friendly defaults for Pi 4/400 and Pi 5/500 firmware. |
 | `libliftoff` † | Ensure vc4 KMS overlays disable liftoff to curb compositor glitches. |
 | `oc_conservative` † | Overclock per model — Pi 5/500 to 2.8 GHz, Pi 4/400/3/Zero 2 firmware-safe clocks. |
 | `eeprom_config` | Tune bootloader EEPROM `SDRAM_BANKLOW` (Pi 5/500 → 1, Pi 4/400 → 3) via `rpi-eeprom-config --apply`. |
+| `pi5_fan` † | Pi 5/500 PWM fan curve (50/60/67/75 C) via `dtparam=fan_temp*` (`--pi5-fan-profile`). |
+| `watchdog` † | Enable hardware watchdog and wire systemd to feed it (`--enable-watchdog`). |
+| `ssh_import` † | Import `authorized_keys` from GitHub/URL (`--ssh-import-github`, `--ssh-import-url`). |
 | `secure_ssh` † | Harden sshd (no root login) and enable fail2ban sshd jail. |
 | `tailscale` † | Install/enable Tailscale repository and service. |
 | `docker` † | Install Docker Engine (preferred repo or distro fallback). |
+| `eeprom_refresh` † | Refresh bootloader EEPROM via `rpi-eeprom-update -a` (`--eeprom-update`). |
 | `firmware_update` † | Run `rpi-update` non-interactively to pull the latest firmware (`--firmware-update`). |
 
 † Runs only when the associated flag is supplied (or when explicitly disabling).
