@@ -3,7 +3,7 @@
 # Coded by Adrian Jon Kriel :: admin@extremeshok.com
 # Project home: https://github.com/extremeshok/pi-optimiser
 # ======================================================================
-# pi-optimiser.sh :: version 7.3
+# pi-optimiser.sh :: version 7.4
 #======================================================================
 # One-shot optimiser for Raspberry Pi OS desktops. Key capabilities:
 #   - Removes bundled bloatware and trims apt caches for a lean install
@@ -26,7 +26,7 @@ if [[ ${BASH_VERSINFO[0]} -lt 4 ]]; then
 fi
 
 SCRIPT_NAME=$(basename "$0")
-SCRIPT_VERSION="7.3"
+SCRIPT_VERSION="7.4"
 
 MARKER_DIR="/etc/pi-optimiser"
 STATE_FILE="$MARKER_DIR/state"
@@ -52,6 +52,8 @@ UNATTENDED_CONF_FILE="/etc/apt/apt.conf.d/51pi-optimiser-unattended.conf"
 UNATTENDED_SERVICE="/etc/systemd/system/pi-unattended-upgrades.service"
 UNATTENDED_TIMER="/etc/systemd/system/pi-unattended-upgrades.timer"
 ZRAM_CONF_FILE="/etc/systemd/zram-generator.conf"
+CPU_GOVERNOR_SERVICE="/etc/systemd/system/pi-optimiser-cpu-governor.service"
+EEPROM_STAGING_DIR="/etc/pi-optimiser/eeprom"
 
 FORCE=0
 KEEP_SCREEN_BLANKING=0
@@ -66,6 +68,7 @@ ZRAM_ALGO_OVERRIDE=""
 INSTALL_ZRAM=0
 REQUEST_OC_CONSERVATIVE=0
 SECURE_SSH=0
+FIRMWARE_UPDATE=0
 
 APT_UPDATED=0
 CURRENT_TASK=""
@@ -92,7 +95,7 @@ declare -a SUMMARY_COMPLETED=()
 declare -a SUMMARY_SKIPPED=()
 declare -a SUMMARY_FAILED=()
 # Tasks skipped if power/thermal preflight reports a blocker.
-declare -a POWER_SENSITIVE_TASKS=(boot_config libliftoff oc_conservative)
+declare -a POWER_SENSITIVE_TASKS=(boot_config libliftoff oc_conservative firmware_update eeprom_config)
 TASK_WAS_SKIPPED=0
 TASK_SKIP_REASON=""
 
@@ -118,8 +121,9 @@ Options:
   --proxy-backend <val>  Configure nginx reverse proxy backend (use off/disable/disabled to remove)
   --install-zram         Enable compressed ZRAM swap configuration task
   --zram-algo <algo>     Override ZRAM compression algorithm (lz4|zstd|disabled)
-  --overclock-conservative Enable firmware-safe CPU/GPU overclock profile (Pi 5/500/4/400/3/Zero 2)
+  --overclock-conservative Enable CPU/GPU overclock profile (Pi 5/500 2.8 GHz, 4/400/3/Zero 2 firmware-safe)
   --secure-ssh           Harden sshd config and enable fail2ban protection
+  --firmware-update      Run rpi-update non-interactively to install latest firmware
   --keep-screen-blanking Keep default desktop blanking behaviour
   --help                 Show this help message and exit
   --version              Print script version and exit
@@ -316,6 +320,68 @@ for raw in existing:
     out_lines.append(raw)
 if not found:
     out_lines.append(line)
+    changed = True
+config_path.write_text('\n'.join(out_lines) + '\n')
+print('changed' if changed else 'unchanged')
+PY
+  )
+  local rc=$?
+  if [[ $rc -ne 0 ]]; then
+    return 2
+  fi
+  if [[ $result == "changed" ]]; then
+    return 0
+  fi
+  return 1
+}
+
+# Ensure config.txt contains exactly one `key=value` line for the given key.
+# Replaces any previous value (commented or not) for the same key.
+ensure_config_key_value() {
+  local entry=$1
+  local target=${2:-$CONFIG_TXT_FILE}
+  if [[ -z "$target" ]]; then
+    target=$CONFIG_TXT_FILE
+  fi
+  if [[ "$entry" != *=* ]]; then
+    return 2
+  fi
+  if [[ ! -f "$target" ]]; then
+    touch "$target"
+  fi
+  local key=${entry%%=*}
+  local result
+  result=$(
+    CONFIG_FILE="$target" CONFIG_ENTRY="$entry" CONFIG_KEY="$key" python3 <<'PY'
+import os
+from pathlib import Path
+config_path = Path(os.environ['CONFIG_FILE'])
+entry = os.environ['CONFIG_ENTRY'].strip()
+key = os.environ['CONFIG_KEY'].strip().lower()
+try:
+    existing = config_path.read_text().splitlines()
+except FileNotFoundError:
+    existing = []
+out_lines = []
+changed = False
+found = False
+for raw in existing:
+    stripped = raw.strip()
+    candidate = stripped.lstrip('#').strip()
+    if '=' in candidate:
+        cand_key = candidate.split('=', 1)[0].strip().lower()
+        if cand_key == key:
+            if not found:
+                if stripped != entry:
+                    changed = True
+                out_lines.append(entry)
+                found = True
+            else:
+                changed = True
+            continue
+    out_lines.append(raw)
+if not found:
+    out_lines.append(entry)
     changed = True
 config_path.write_text('\n'.join(out_lines) + '\n')
 print('changed' if changed else 'unchanged')
@@ -671,6 +737,9 @@ parse_args() {
         ;;
       --secure-ssh)
         SECURE_SSH=1
+        ;;
+      --firmware-update)
+        FIRMWARE_UPDATE=1
         ;;
       --keep-screen-blanking)
         KEEP_SCREEN_BLANKING=1
@@ -1910,10 +1979,11 @@ task_configure_conservative_oc() {
   local model_lower=${SYSTEM_MODEL,,}
   if pi_is_generation 5 || [[ $model_lower == *"raspberry pi 500"* ]]; then
     entries=(
-      "arm_freq=2400"
-      "gpu_freq=900"
+      "over_voltage_delta=30000"
+      "arm_freq=2800"
+      "gpu_freq=950"
     )
-    profile="pi5_conservative"
+    profile="pi5_2800mhz"
   elif [[ $model_lower == *"raspberry pi 400"* ]]; then
     entries=(
       "arm_freq=2000"
@@ -1946,13 +2016,17 @@ task_configure_conservative_oc() {
   fi
 
   backup_file "$CONFIG_TXT_FILE"
-  local applied=0 entry safe_key
+  local applied=0 entry safe_key rc
   for entry in "${entries[@]}"; do
-    if ensure_config_line "$entry" "$CONFIG_TXT_FILE"; then
+    ensure_config_key_value "$entry" "$CONFIG_TXT_FILE"
+    rc=$?
+    if [[ $rc -eq 0 ]]; then
       log_info "Applied $entry to config.txt"
       safe_key=${entry//=/_}
       write_json_field "$CONFIG_OPTIMISER_STATE" "overclock.${safe_key}" "$entry"
       applied=1
+    elif [[ $rc -gt 1 ]]; then
+      log_warn "Failed to apply $entry to config.txt"
     fi
   done
   if [[ $applied -eq 1 ]]; then
@@ -2021,6 +2095,187 @@ JAIL
 }
 
 
+# Install systemd service that pins the CPU scaling governor to performance.
+task_configure_cpu_governor() {
+  if [[ ! -d /sys/devices/system/cpu/cpu0/cpufreq ]]; then
+    log_info "cpufreq not exposed by kernel; skipping governor pinning"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (cpufreq unavailable)"
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$CPU_GOVERNOR_SERVICE")"
+  cat <<'CFG' > "$CPU_GOVERNOR_SERVICE"
+[Unit]
+Description=Pin CPU scaling governor to performance (pi-optimiser)
+After=multi-user.target
+ConditionPathExists=/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do [ -w "$g" ] && echo performance > "$g" || true; done'
+
+[Install]
+WantedBy=multi-user.target
+CFG
+  chmod 644 "$CPU_GOVERNOR_SERVICE"
+
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  if ! systemctl enable pi-optimiser-cpu-governor.service >/dev/null 2>&1; then
+    log_warn "Unable to enable pi-optimiser-cpu-governor.service"
+  fi
+
+  local g changed=0
+  for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+    [[ -w "$g" ]] || continue
+    if echo performance > "$g" 2>/dev/null; then
+      changed=1
+    fi
+  done
+  if (( changed == 1 )); then
+    log_info "CPU scaling governor set to performance"
+  else
+    log_warn "Unable to write scaling_governor; service will apply on next boot"
+  fi
+  write_json_field "$CONFIG_OPTIMISER_STATE" "cpu.governor" "performance"
+}
+
+
+# Apply SDRAM_BANKLOW tuning to the Raspberry Pi bootloader EEPROM.
+task_configure_eeprom() {
+  if ! command -v rpi-eeprom-config >/dev/null 2>&1; then
+    log_info "rpi-eeprom-config not available; skipping EEPROM tuning"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (rpi-eeprom-config missing)"
+    return 0
+  fi
+
+  local bank_value=""
+  local profile=""
+  local model_lower=${SYSTEM_MODEL,,}
+  if pi_is_generation 5 || [[ $model_lower == *"raspberry pi 500"* ]]; then
+    bank_value=1
+    profile="pi5"
+  elif [[ $model_lower == *"raspberry pi 400"* ]]; then
+    bank_value=3
+    profile="pi400"
+  elif pi_is_generation 4; then
+    bank_value=3
+    profile="pi4"
+  else
+    log_info "EEPROM SDRAM tuning not applicable for model ${SYSTEM_MODEL:-unknown}"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (model unsupported)"
+    return 0
+  fi
+
+  mkdir -p "$EEPROM_STAGING_DIR"
+  chmod 755 "$EEPROM_STAGING_DIR"
+
+  local current_conf new_conf
+  current_conf=$(mktemp)
+  new_conf=$(mktemp)
+
+  if ! rpi-eeprom-config > "$current_conf" 2>/dev/null; then
+    log_warn "Unable to read current EEPROM configuration"
+    rm -f "$current_conf" "$new_conf"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (could not read eeprom config)"
+    return 0
+  fi
+
+  CONF_IN="$current_conf" CONF_OUT="$new_conf" BANK_VALUE="$bank_value" python3 <<'PY'
+import os
+from pathlib import Path
+
+src = Path(os.environ['CONF_IN'])
+dst = Path(os.environ['CONF_OUT'])
+bank_value = os.environ['BANK_VALUE']
+
+lines = src.read_text().splitlines() if src.exists() else []
+out = []
+found = False
+for line in lines:
+    candidate = line.strip().lstrip('#').strip()
+    if candidate.upper().startswith('SDRAM_BANKLOW='):
+        if not found:
+            out.append(f"SDRAM_BANKLOW={bank_value}")
+            found = True
+        continue
+    out.append(line)
+if not found:
+    out.append(f"SDRAM_BANKLOW={bank_value}")
+dst.write_text('\n'.join(out) + '\n')
+PY
+
+  cp "$new_conf" "$EEPROM_STAGING_DIR/boot.conf.pending" 2>/dev/null || true
+
+  if diff -q "$current_conf" "$new_conf" >/dev/null 2>&1; then
+    log_info "EEPROM config already has SDRAM_BANKLOW=$bank_value"
+    rm -f "$current_conf" "$new_conf"
+    write_json_field "$CONFIG_OPTIMISER_STATE" "eeprom.sdram_banklow" "$bank_value"
+    write_json_field "$CONFIG_OPTIMISER_STATE" "eeprom.profile" "$profile"
+    return 0
+  fi
+
+  local backup_path="$EEPROM_STAGING_DIR/boot.conf.$(date +%Y%m%d%H%M%S).bak"
+  cp "$current_conf" "$backup_path" 2>/dev/null || true
+
+  if rpi-eeprom-config --apply "$new_conf" >/dev/null 2>&1; then
+    log_info "Applied SDRAM_BANKLOW=$bank_value to EEPROM (profile: $profile); active after reboot"
+    write_json_field "$CONFIG_OPTIMISER_STATE" "eeprom.sdram_banklow" "$bank_value"
+    write_json_field "$CONFIG_OPTIMISER_STATE" "eeprom.profile" "$profile"
+    rm -f "$current_conf" "$new_conf"
+    return 0
+  fi
+
+  log_warn "rpi-eeprom-config --apply failed; EEPROM unchanged (staged config at $EEPROM_STAGING_DIR/boot.conf.pending)"
+  rm -f "$current_conf" "$new_conf"
+  return 1
+}
+
+
+# Install latest Raspberry Pi firmware via rpi-update (opt-in, non-interactive).
+task_firmware_update() {
+  if [[ $FIRMWARE_UPDATE -eq 0 ]]; then
+    log_info "Firmware update via rpi-update not requested; skipping"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (not requested)"
+    return 0
+  fi
+  if ! command -v rpi-update >/dev/null 2>&1; then
+    log_warn "rpi-update not installed; skipping firmware update"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (rpi-update missing)"
+    return 0
+  fi
+  if [[ ${NETWORK_AVAILABLE:-1} -eq 0 ]]; then
+    log_warn "Network unavailable; skipping rpi-update"
+    TASK_WAS_SKIPPED=1
+    TASK_SKIP_REASON="$CURRENT_TASK (network unavailable)"
+    return 0
+  fi
+
+  log_info "Running rpi-update non-interactively (SKIP_WARNING=1)"
+  # Pipe 'y' into stdin as a belt-and-suspenders guard for any future prompts.
+  # Disable pipefail so yes(1) getting SIGPIPE doesn't mask rpi-update's exit
+  # code; `|| rpi_update_rc=$?` prevents `set -e` from firing on a real failure
+  # and captures rpi-update's status.
+  local rpi_update_rc=0
+  set +o pipefail
+  yes y | SKIP_WARNING=1 rpi-update || rpi_update_rc=$?
+  set -o pipefail
+  if [[ $rpi_update_rc -eq 0 ]]; then
+    log_info "rpi-update completed; reboot required to activate new firmware"
+    write_json_field "$CONFIG_OPTIMISER_STATE" "firmware.last_update" "$(date --iso-8601=seconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')"
+    return 0
+  fi
+  log_warn "rpi-update returned exit code $rpi_update_rc"
+  return 1
+}
+
+
 TASK_DEFS=(
   "remove_bloat:task_remove_bloat_packages:Remove bundled educational/demo packages"
   "fstab:task_tune_fstab:Tune filesystem mounts for reduced writes"
@@ -2030,6 +2285,7 @@ TASK_DEFS=(
   "zram:task_configure_zram:Configure compressed ZRAM swap sized to system memory"
   "journald:task_configure_journald:Limit systemd journal writes to RAM"
   "sysctl:task_configure_sysctl:Tune kernel memory and writeback behaviour"
+  "cpu_governor:task_configure_cpu_governor:Pin CPU scaling governor to performance via systemd"
   "apt_conf:task_configure_apt:Reduce apt cache usage and auto updates"
   "unattended:task_configure_unattended_upgrades:Enable unattended security upgrades (6h cadence)"
   "cli_tools:task_install_cli_tools:Ensure essential CLI tools are installed"
@@ -2040,10 +2296,12 @@ TASK_DEFS=(
   "proxy:task_configure_proxy:Expose a backend via nginx reverse proxy on port 80"
   "boot_config:task_optimize_boot_config:Tune /boot/firmware/config.txt for kiosk display stability"
   "libliftoff:task_disable_libliftoff_overlays:Ensure vc4 KMS overlays keep liftoff disabled"
-  "oc_conservative:task_configure_conservative_oc:Apply conservative Raspberry Pi overclock profile"
+  "oc_conservative:task_configure_conservative_oc:Apply Raspberry Pi overclock profile (Pi 5/500 2.8 GHz)"
+  "eeprom_config:task_configure_eeprom:Tune Raspberry Pi EEPROM SDRAM_BANKLOW for Pi 4/400/5/500"
   "secure_ssh:task_secure_ssh:Harden sshd configuration and enable fail2ban"
   "tailscale:task_setup_tailscale:Install and enable Tailscale"
   "docker:task_install_docker:Install Docker Engine and enable service"
+  "firmware_update:task_firmware_update:Run rpi-update non-interactively (opt-in)"
 )
 
 # Ensure /tmp lives on tmpfs to reduce SD card writes.
@@ -2096,6 +2354,11 @@ main() {
     if [[ "$task" == "docker" && $INSTALL_DOCKER -eq 0 ]]; then
       log_info "Skipping docker task (enable with --install-docker)"
       SUMMARY_SKIPPED+=("$task (docker not requested)")
+      continue
+    fi
+    if [[ "$task" == "firmware_update" && $FIRMWARE_UPDATE -eq 0 ]]; then
+      log_info "Skipping firmware_update task (enable with --firmware-update)"
+      SUMMARY_SKIPPED+=("$task (firmware update not requested)")
       continue
     fi
     if [[ "$task" == "zram" ]]; then

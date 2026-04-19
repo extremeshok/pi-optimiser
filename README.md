@@ -5,7 +5,8 @@ A one-shot hardening and tuning script for **Raspberry Pi OS (Bookworm/Trixie or
 ## What You Get
 - **Hardware-aware configuration** for Pi 5/500, Pi 4/400, Pi 3, and Pi Zero 2, with preflight checks for throttling, power issues, and connectivity before any changes.
 - **Storage longevity** tweaks: aggressive apt hygiene, tmpfs mounts for `/tmp` and `/var/log`, journal rate limits, and pessimistic writeback tuning.
-- **Optional extras** you can add à la carte: compressed ZRAM swap, Tailscale, Docker, conservative overclocking per model, NGINX proxy, kiosk display tuning, and SSH hardening with fail2ban.
+- **Optional extras** you can add à la carte: compressed ZRAM swap, Tailscale, Docker, per-model overclocking (Pi 5/500 ship at 2.8 GHz), NGINX proxy, kiosk display tuning, bootloader EEPROM tuning, non-interactive `rpi-update`, and SSH hardening with fail2ban.
+- **Runtime tuning** pinned to `performance` via a systemd unit so the CPU governor stays set across reboots.
 - **Auditability**: every task logs to `/var/log/pi-optimiser.log`, state lives in `/etc/pi-optimiser/state`, and backups carry timestamped `.pi-optimiser.*` suffixes.
 
 ## Quick Start
@@ -35,8 +36,9 @@ Helpful commands:
 | `--proxy-backend <url|off|disable|disabled>` | Manage the NGINX proxy helper. |
 | `--install-zram` | Enable the compressed ZRAM swap task (disabled by default). |
 | `--zram-algo <lz4|zstd|disabled>` | Override the ZRAM compression or disable existing configuration. |
-| `--overclock-conservative` | Apply firmware-safe CPU/GPU clocks on Pi 5/500, 4/400, 3, and Pi Zero 2 (power-health required). |
+| `--overclock-conservative` | Apply CPU/GPU overclock profile (Pi 5/500 runs at 2.8 GHz with `over_voltage_delta=30000`; other models use firmware-safe clocks). Requires healthy power. |
 | `--secure-ssh` | Disable root SSH login, keep user passwords, and enable fail2ban. |
+| `--firmware-update` | Run `rpi-update` non-interactively (`SKIP_WARNING=1`) to pull the latest Raspberry Pi firmware. Reboot required. |
 | `--keep-screen-blanking` | Preserve default screen blanking. |
 | `--help` / `--version` | Self-explanatory. |
 
@@ -58,6 +60,7 @@ The script executes these tasks in order unless skipped. **Optional** tasks requ
 | `zram` † | Configure compressed swap (requires `--install-zram`; override/disable with `--zram-algo`). |
 | `journald` | Keep the journal in RAM with 50 MB runtime limit. |
 | `sysctl` | Apply writeback, swappiness, inotify, and net backlog tweaks. |
+| `cpu_governor` | Install a systemd unit that pins the CPU scaling governor to `performance` on every boot. |
 | `apt_conf` | Harden unattended apt jobs and trim caches. |
 | `unattended` | Configure security-only unattended upgrades on a 6‑hour timer. |
 | `cli_tools` | Install useful CLI utilities (`htop`, `tmux`, `pigz`, etc.). |
@@ -68,23 +71,38 @@ The script executes these tasks in order unless skipped. **Optional** tasks requ
 | `proxy` † | Manage the NGINX reverse proxy (`--proxy-backend URL` or disable). |
 | `boot_config` † | Apply display-friendly defaults for Pi 4/400 and Pi 5/500 firmware. |
 | `libliftoff` † | Ensure vc4 KMS overlays disable liftoff to curb compositor glitches. |
-| `oc_conservative` † | Conservative overclock per model (Pi 5/500, 4/400, 3, Zero 2). |
+| `oc_conservative` † | Overclock per model — Pi 5/500 to 2.8 GHz, Pi 4/400/3/Zero 2 firmware-safe clocks. |
+| `eeprom_config` | Tune bootloader EEPROM `SDRAM_BANKLOW` (Pi 5/500 → 1, Pi 4/400 → 3) via `rpi-eeprom-config --apply`. |
 | `secure_ssh` † | Harden sshd (no root login) and enable fail2ban sshd jail. |
 | `tailscale` † | Install/enable Tailscale repository and service. |
 | `docker` † | Install Docker Engine (preferred repo or distro fallback). |
+| `firmware_update` † | Run `rpi-update` non-interactively to pull the latest firmware (`--firmware-update`). |
 
 † Runs only when the associated flag is supplied (or when explicitly disabling).
 
-### Conservative Overclock Profiles
+### Overclock Profiles
 | Model | Profile Applied | Notes |
 |-------|-----------------|-------|
-| Pi 5 / Pi 500 | `arm_freq=2400`, `gpu_freq=900` | Requires healthy power (checked in preflight). |
+| Pi 5 / Pi 500 | `over_voltage_delta=30000`, `arm_freq=2800`, `gpu_freq=950` | 2.8 GHz A76 with +30 mV DVFS delta. Requires healthy power (checked in preflight) and solid cooling. |
 | Pi 4 | `arm_freq=1750`, `gpu_freq=600` | |
 | Pi 400 | `arm_freq=2000`, `gpu_freq=600` | Matches official 2 GHz support. |
 | Pi 3 | `arm_freq=1400`, `gpu_freq=500` | |
 | Pi Zero 2 | `arm_freq=1200`, `gpu_freq=500` | |
 
-If preflight detects undervoltage or throttling, the overclock task is skipped automatically.
+If preflight detects undervoltage or throttling, the overclock, EEPROM, and firmware-update tasks are skipped automatically.
+
+### EEPROM SDRAM Tuning
+`eeprom_config` runs `rpi-eeprom-config --apply` to set `SDRAM_BANKLOW` on Raspberry Pi bootloader EEPROMs:
+
+| Model | `SDRAM_BANKLOW` |
+|-------|-----------------|
+| Pi 5 / Pi 500 | `1` |
+| Pi 4 / Pi 400 | `3` |
+
+The previous EEPROM configuration is backed up under `/etc/pi-optimiser/eeprom/boot.conf.*.bak` before the change is staged. Reboot to activate.
+
+### Firmware Update (`--firmware-update`)
+Runs `SKIP_WARNING=1 yes y | rpi-update` so the updater skips every `y/N` prompt and pulls the latest firmware branch. A reboot is required for the new firmware to take effect. Skipped automatically if preflight detects power/thermal blockers or the network is unreachable.
 
 ### SSH Hardening (`--secure-ssh`)
 - Forces `PermitRootLogin no` while keeping `PasswordAuthentication yes` for regular users.
