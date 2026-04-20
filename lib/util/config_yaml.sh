@@ -206,6 +206,7 @@ out.append(f'INSTALL_SMARTMONTOOLS={bv(get(i, "smartmontools"))}')
 out.append(f'INSTALL_CLI_MODERN={bv(get(i, "cli_modern"))}')
 out.append(f'INSTALL_NET_DIAG={bv(get(i, "net_diag"))}')
 out.append(f'ENABLE_DNS_CACHE={bv(get(i, "dns_cache"))}')
+out.append(f'INSTALL_PI_CONNECT={bv(get(i, "pi_connect"))}')
 
 h = data.get("hardware", {})
 out.append(f'REQUEST_OC_CONSERVATIVE={bv(get(h, "overclock_conservative"))}')
@@ -215,6 +216,9 @@ out.append(f'INSTALL_PCIE_GEN3={bv(get(h, "pcie_gen3"))}')
 out.append(f'INSTALL_WATCHDOG={bv(get(h, "watchdog"))}')
 out.append(f'WIFI_POWERSAVE_OFF={bv(get(h, "wifi_powersave_off"))}')
 out.append(f'DISABLE_BLUETOOTH={bv(get(h, "disable_bluetooth"))}')
+out.append(f'QUIET_BOOT={bv(get(h, "quiet_boot"))}')
+out.append(f'DISABLE_LEDS={bv(get(h, "disable_leds"))}')
+out.append(f'NVME_TUNE={bv(get(h, "nvme_tune"))}')
 for v in ("temp_limit", "temp_soft_limit", "initial_turbo"):
     val = get(h, v)
     if val:
@@ -224,11 +228,13 @@ for v in ("temp_limit", "temp_soft_limit", "initial_turbo"):
 f = data.get("firmware", {})
 out.append(f'FIRMWARE_UPDATE={bv(get(f, "firmware_update"))}')
 out.append(f'EEPROM_UPDATE={bv(get(f, "eeprom_update"))}')
+out.append(f'POWER_OFF_HALT={bv(get(f, "power_off_halt"))}')
 
 s = data.get("security", {})
 out.append(f'SECURE_SSH={bv(get(s, "secure_ssh"))}')
 out.append(f'SSH_IMPORT_GITHUB={sv(get(s, "ssh_import_github"))}')
 out.append(f'SSH_IMPORT_URL={sv(get(s, "ssh_import_url"))}')
+out.append(f'INSTALL_FIREWALL={bv(get(s, "firewall"))}')
 
 sy = data.get("system", {})
 out.append(f'REQUESTED_HOSTNAME={sv(get(sy, "hostname"))}')

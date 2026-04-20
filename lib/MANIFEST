@@ -15,6 +15,7 @@ var_log_tmpfs
 disable_swap
 zram
 fstrim
+nvme_tune
 
 # --- Kernel & runtime tuning -----------------------------------------
 sysctl
@@ -32,6 +33,8 @@ limits
 # --- Display & background services -----------------------------------
 screen_blanking
 disable_services
+quiet_boot
+disable_leds
 
 # --- Networking -------------------------------------------------------
 proxy
@@ -55,6 +58,7 @@ watchdog
 # --- Security ---------------------------------------------------------
 ssh_import
 secure_ssh
+ufw_firewall
 
 # --- Packages ---------------------------------------------------------
 cli_bundle_modern
@@ -63,7 +67,9 @@ smartmontools
 
 # --- Integrations -----------------------------------------------------
 docker
+pi_connect
 
 # --- Firmware (reboot-required; runs last) ---------------------------
 eeprom_refresh
 firmware_update
+power_off_halt

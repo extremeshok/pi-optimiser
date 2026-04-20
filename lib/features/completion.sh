@@ -35,6 +35,8 @@ _pi_optimiser() {
     --docker-buildx-multiarch --docker-cgroupv2
     --watch --diff --no-metrics --metrics-path --freeze-task
     --self-test --show-config --reboot-after
+    --install-firewall --power-off-halt --nvme-tune --quiet-boot
+    --disable-leds --install-pi-connect
     --completion --help --version
   "
 
@@ -125,6 +127,12 @@ _pi_optimiser() {
     '--self-test[run task preconditions read-only]'
     '--show-config[print effective config]'
     '--reboot-after[reboot N minutes post-run]:minutes:'
+    '--install-firewall[install and enable UFW]'
+    '--power-off-halt[Pi 5 EEPROM: cut 3V3 on shutdown]'
+    '--nvme-tune[disable NVMe APST for HAT compatibility]'
+    '--quiet-boot[hide splash and silence kernel log]'
+    '--disable-leds[turn off activity/power/ethernet LEDs]'
+    '--install-pi-connect[install Raspberry Pi Connect]'
     '--completion[emit completion script]:shell:(bash zsh)'
     '--help[show help]'
     '--version[show version]'

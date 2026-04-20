@@ -2,7 +2,7 @@
 title: PI-OPTIMISER
 section: 8
 header: System Manager's Manual
-footer: pi-optimiser 9.1.2
+footer: pi-optimiser 9.2.0
 date: 2026-04
 ---
 
@@ -143,6 +143,33 @@ task failures; only SIGINT ends the watcher.
 : Skip or relocate the Prometheus textfile-collector output
 (default `/var/lib/node_exporter/textfile_collector/pi-optimiser.prom`
 when that directory exists, else `/etc/pi-optimiser/metrics/pi-optimiser.prom`).
+
+**--install-firewall**
+: Install UFW, set deny-in / allow-out, and open the detected SSH
+port, ICMP, and any active `tailscale0` or `wg*` interface.
+
+**--power-off-halt**
+: Pi 5 only. Set EEPROM `POWER_OFF_ON_HALT=1` so the 3V3 rail cuts
+on shutdown (~0.01 W idle vs ~1.2 W). Incompatible with HATs that
+need 3V3 while the Pi is "off".
+
+**--nvme-tune**
+: Add `nvme_core.default_ps_max_latency_us=0` to cmdline.txt so
+APST is disabled — works around several Pi 5 NVMe HAT + SSD
+combinations that drop out under APST.
+
+**--quiet-boot**
+: Hide the rainbow splash (`disable_splash=1`) and silence kernel
+log output at boot (`quiet loglevel=3`).
+
+**--disable-leds**
+: Turn off the activity, power, and both ethernet LEDs for
+headless / rack-mounted installs.
+
+**--install-pi-connect**
+: Install the official Raspberry Pi Connect package
+(`rpi-connect`, or `rpi-connect-lite` when no display is attached).
+The operator still runs `rpi-connect signin` to pair the device.
 
 # SELF-UPDATE (opt-in)
 

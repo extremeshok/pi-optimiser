@@ -3,7 +3,7 @@
 # Coded by Adrian Jon Kriel :: admin@extremeshok.com
 # Project home: https://github.com/extremeshok/pi-optimiser
 # ======================================================================
-# pi-optimiser.sh :: version 9.1.2
+# pi-optimiser.sh :: version 9.2.0
 #======================================================================
 # One-shot optimiser for Raspberry Pi OS desktops. Key capabilities:
 #   - Removes bundled bloatware and trims apt caches for a lean install
@@ -26,7 +26,7 @@ if [[ ${BASH_VERSINFO[0]} -lt 4 ]]; then
 fi
 
 SCRIPT_NAME=$(basename "$0")
-SCRIPT_VERSION="9.1.2"
+SCRIPT_VERSION="9.2.0"
 
 # Globals consumed by sourced lib/util/*.sh modules; shellcheck cannot
 # see across source boundaries so SC2034 would flag them spuriously.
@@ -139,6 +139,14 @@ PI_SHOW_CONFIG=0
 PI_UNDO_ALL=0
 PI_REBOOT_AFTER=""
 PI_SELF_TEST=0
+
+# P7 additions (9.2.0) — headless-hardening + Geerling/NVMe tweaks.
+POWER_OFF_HALT=0
+INSTALL_FIREWALL=0
+NVME_TUNE=0
+QUIET_BOOT=0
+DISABLE_LEDS=0
+INSTALL_PI_CONNECT=0
 
 # P6 additions — metrics, watch mode, per-task freeze, diff-preview.
 # shellcheck disable=SC2034  # read by lib/features/metrics.sh
@@ -366,6 +374,12 @@ Options:
   --install-net-diag     Install network diagnostics (nmap/iperf3/tcpdump)
   --docker-buildx-multiarch  Install qemu-user-static + seed binfmt for buildx
   --docker-cgroupv2      Append systemd.unified_cgroup_hierarchy=1 to cmdline
+  --install-firewall     Install and enable UFW (deny-in, allow SSH + VPN meshes)
+  --power-off-halt       Pi 5: cut 3V3 on shutdown (~0.01 W idle; disable if HATs use 3V3)
+  --nvme-tune            Disable NVMe APST for compatibility with some Pi 5 NVMe HATs
+  --quiet-boot           Hide the rainbow splash and silence kernel log at boot
+  --disable-leds         Turn off activity/power/ethernet LEDs (headless/rack)
+  --install-pi-connect   Install Raspberry Pi Connect (browser-based remote access)
   --profile <name>       Apply flag bundle: kiosk | server | desktop | headless-iot
   --report               Print a human-readable state report and exit
   --snapshot             Tar key config files to /etc/pi-optimiser/snapshots and exit
@@ -832,6 +846,12 @@ parse_args() {
       --install-cli-modern)   INSTALL_CLI_MODERN=1 ;;
       --install-net-diag)     INSTALL_NET_DIAG=1 ;;
       --docker-buildx-multiarch) DOCKER_BUILDX_MULTIARCH=1 ;;
+      --power-off-halt)      POWER_OFF_HALT=1 ;;
+      --install-firewall)    INSTALL_FIREWALL=1 ;;
+      --nvme-tune)           NVME_TUNE=1 ;;
+      --quiet-boot)          QUIET_BOOT=1 ;;
+      --disable-leds)        DISABLE_LEDS=1 ;;
+      --install-pi-connect)  INSTALL_PI_CONNECT=1 ;;
       --docker-cgroupv2)      DOCKER_CGROUPV2=1 ;;
       --yes|-y|--non-interactive) PI_NON_INTERACTIVE=1 ;;
       --uninstall)           PI_UNINSTALL=1 ;;
@@ -1114,6 +1134,8 @@ main() {
     --install-net-diag --enable-dns-cache
     --overclock-conservative --underclock --pi5-fan-profile --pcie-gen3
     --enable-watchdog --secure-ssh --firmware-update --eeprom-update
+    --install-firewall --power-off-halt --nvme-tune --quiet-boot
+    --disable-leds --install-pi-connect
     --ssh-import-github --ssh-import-url
     --hostname --timezone --locale --proxy-backend
     --profile --config

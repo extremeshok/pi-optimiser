@@ -15,10 +15,10 @@ pi_list_profiles() {
     cat <<'JSON'
 {
   "profiles": [
-    { "name": "kiosk",        "enables": ["INSTALL_ZRAM", "WIFI_POWERSAVE_OFF", "SECURE_SSH"] },
-    { "name": "server",       "enables": ["INSTALL_ZRAM", "SECURE_SSH", "INSTALL_SMARTMONTOOLS", "INSTALL_NODE_EXPORTER", "ENABLE_DNS_CACHE", "KEEP_SCREEN_BLANKING"] },
+    { "name": "kiosk",        "enables": ["INSTALL_ZRAM", "WIFI_POWERSAVE_OFF", "SECURE_SSH", "QUIET_BOOT"] },
+    { "name": "server",       "enables": ["INSTALL_ZRAM", "SECURE_SSH", "INSTALL_SMARTMONTOOLS", "INSTALL_NODE_EXPORTER", "ENABLE_DNS_CACHE", "INSTALL_FIREWALL", "DISABLE_LEDS", "KEEP_SCREEN_BLANKING"] },
     { "name": "desktop",      "enables": ["INSTALL_CLI_MODERN"] },
-    { "name": "headless-iot", "enables": ["INSTALL_WATCHDOG", "DISABLE_BLUETOOTH", "WIFI_POWERSAVE_OFF", "REQUEST_UNDERCLOCK", "KEEP_SCREEN_BLANKING"] }
+    { "name": "headless-iot", "enables": ["INSTALL_WATCHDOG", "DISABLE_BLUETOOTH", "WIFI_POWERSAVE_OFF", "REQUEST_UNDERCLOCK", "DISABLE_LEDS", "QUIET_BOOT", "KEEP_SCREEN_BLANKING"] }
   ]
 }
 JSON
@@ -26,12 +26,13 @@ JSON
   fi
   cat <<'EOF'
 Profiles:
-  kiosk         HDMI kiosk — ZRAM, Wi-Fi never sleeps, SSH hardened.
+  kiosk         HDMI kiosk — ZRAM, Wi-Fi never sleeps, SSH hardened,
+                quiet boot (no rainbow splash).
   server        Headless server — ZRAM, hardened SSH, smartd,
-                node_exporter, DNS cache. No HDMI (keeps blanking).
+                node_exporter, DNS cache, UFW firewall, LEDs off.
   desktop       GUI Pi — modern CLI bundle; leave swap alone.
   headless-iot  Zero 2 / Pi 3 class — watchdog, no Bluetooth,
-                Wi-Fi never sleeps, underclock, no HDMI work.
+                Wi-Fi never sleeps, underclock, LEDs off, quiet boot.
 
 Profiles set flag globals before the rest of parse_args runs, so
 anything specified later on the CLI overrides the profile default.
@@ -324,20 +325,25 @@ pi_apply_profile() {
   case $name in
     kiosk)
       # Always-on HDMI screens: keep display on, ZRAM, performance gov,
-      # no SSH brute-force window, WiFi doesn't nap.
+      # no SSH brute-force window, WiFi doesn't nap. Quiet boot hides
+      # the rainbow splash which looks unpolished on digital signage.
       INSTALL_ZRAM=1
       WIFI_POWERSAVE_OFF=1
       SECURE_SSH=1
+      QUIET_BOOT=1
       # screen_blanking runs by default — don't set KEEP_SCREEN_BLANKING.
       ;;
     server)
       # Headless server: tmpfs-heavy, ZRAM, SSH hardened + key import
-      # expected, smartd for NVMe, node_exporter for metrics, no HDMI.
+      # expected, smartd for NVMe, node_exporter for metrics, no HDMI,
+      # UFW firewall active, status LEDs off for rack hygiene.
       INSTALL_ZRAM=1
       SECURE_SSH=1
       INSTALL_SMARTMONTOOLS=1
       INSTALL_NODE_EXPORTER=1
       ENABLE_DNS_CACHE=1
+      INSTALL_FIREWALL=1
+      DISABLE_LEDS=1
       KEEP_SCREEN_BLANKING=1  # no display, skip the screen_blanking work
       ;;
     desktop)
@@ -346,11 +352,14 @@ pi_apply_profile() {
       ;;
     headless-iot)
       # Zero 2 / Pi 3 class low-power: watchdog, no Bluetooth, underclock,
-      # no HDMI, no power-save on WiFi (want reliable connectivity).
+      # no HDMI, no power-save on WiFi (want reliable connectivity),
+      # status LEDs off, quiet boot so serial console isn't spammed.
       INSTALL_WATCHDOG=1
       DISABLE_BLUETOOTH=1
       WIFI_POWERSAVE_OFF=1
       REQUEST_UNDERCLOCK=1
+      DISABLE_LEDS=1
+      QUIET_BOOT=1
       KEEP_SCREEN_BLANKING=1
       ;;
     *)

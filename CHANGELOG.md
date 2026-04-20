@@ -1,5 +1,57 @@
 # Changelog
 
+## 9.2.0 — 2026-04-20
+
+Research pass on Jeff Geerling's published work, official Raspberry
+Pi forums, and the usual headless-hardening guides surfaced a handful
+of gap-closers. All opt-in, all benign when skipped.
+
+### Added (six new tasks)
+- **`power_off_halt`** (firmware-eeprom) — Pi 5 EEPROM setting
+  `POWER_OFF_ON_HALT=1` cuts the 3V3 rail on shutdown, dropping idle
+  draw from ~1.2 W to ~0.01 W. Opt-in via `--power-off-halt` (some
+  HATs need 3V3 while the Pi is "off"). Credit: Jeff Geerling.
+- **`ufw_firewall`** (security) — installs UFW, sets deny-in /
+  allow-out, and punches a hole for the detected SSH port, ICMP, and
+  any `tailscale0` / `wg*` interface that exists. `--install-firewall`.
+- **`nvme_tune`** (storage) — adds
+  `nvme_core.default_ps_max_latency_us=0` to cmdline.txt so
+  compatibility-bugged NVMe HAT + SSD combos stop hitting APST
+  dropouts. `--nvme-tune`, reboot-required.
+- **`quiet_boot`** (display) — `disable_splash=1` in config.txt plus
+  `quiet loglevel=3` in cmdline.txt. Kills the rainbow splash and
+  shrinks kernel log spam. `--quiet-boot`, reboot-required.
+- **`disable_leds`** (display) — `act_led_trigger=none`,
+  `pwr_led_trigger=none`, `eth_led0=4`, `eth_led1=4`. Saves ~15 mA
+  and stops the strobe in rack-mounted Pis. `--disable-leds`,
+  reboot-required.
+- **`pi_connect`** (integrations) — installs Raspberry Pi Connect
+  (WebRTC remote access, official), picking `rpi-connect` when a
+  display is attached and the lighter `rpi-connect-lite` otherwise.
+  Pairing (`rpi-connect signin`) remains an interactive user step.
+  `--install-pi-connect`.
+
+### Changed
+- **`sysctl` task bumped to 1.2.0** — adds TCP BBR + fq qdisc
+  (`net.core.default_qdisc=fq`,
+  `net.ipv4.tcp_congestion_control=bbr`). Google's production default
+  since ~2017; measurable throughput win on lossy / high-RTT links.
+  Task verifies BBR actually loaded and warns on kernels too old to
+  support it.
+- **Profile bundles refreshed**:
+  - `kiosk` adds `QUIET_BOOT=1` (no rainbow splash on signage).
+  - `server` adds `INSTALL_FIREWALL=1` + `DISABLE_LEDS=1` (stops
+    strobing in the rack, closes incoming-by-default).
+  - `headless-iot` adds `DISABLE_LEDS=1` + `QUIET_BOOT=1` (quiet
+    serial console, no wasted power on LEDs).
+- **YAML config** gains six new keys:
+  `integrations.pi_connect`, `hardware.quiet_boot`,
+  `hardware.disable_leds`, `hardware.nvme_tune`,
+  `firmware.power_off_halt`, `security.firewall`. Existing keys
+  unchanged.
+- **Help, completion (bash + zsh), and man page** updated for the
+  six new flags.
+
 ## 9.1.2 — 2026-04-19
 
 ### Changed
