@@ -230,8 +230,9 @@ synced, non-zero on other errors.
 
 **--require-signature**
 : Refuse `--update` unless a minisign signature is present
-alongside the tarball. (Signing pipeline is pending; verifier
-ships now.)
+alongside the tarball. Verifier ships; the operator supplies
+their own public key (no official signing pipeline — see the
+README Security section for the rationale).
 
 **--enable-update-timer**, **--disable-update-timer**
 : Install/remove a daily systemd timer running `--update --yes`

@@ -229,10 +229,12 @@ pi_self_update() {
   log_info "Next run from the launcher will pick up the new release."
 }
 
-# Minisign signature verification stub. Real signing infrastructure is
-# deferred; this function is wired but no-ops when the public key is
-# absent. Callers gate on --require-signature, which bails hard if this
-# returns non-zero.
+# Minisign signature verification. There is no official signing
+# pipeline (see README Security section for rationale); operators
+# who want strict verification ship their own key + signatures and
+# pass --require-signature to opt in. Missing key → non-zero return
+# → --require-signature bails hard; without that flag this function
+# is never reached.
 pi_update_verify_signature() {
   local src_root=$1
   local sig_file="$src_root/pi-optimiser.sh.minisig"

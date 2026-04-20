@@ -92,7 +92,7 @@ Helpful commands:
 | `--check-update` | Compare installed vs remote SHA on `master`. Exit 10 if ahead, 0 if synced. |
 | `--update` | Pull the configured ref, verify, atomic-swap `current`, record SHA. |
 | `--enable-update-timer` / `--disable-update-timer` | Opt-in daily systemd timer. |
-| `--require-signature` | Refuse updates without a valid minisign signature (verifier shipped; signing pipeline pending). |
+| `--require-signature` | Refuse updates without a valid minisign signature. Verifier ships; there is no official signing pipeline (see Security notes below), so the operator supplies their own key. |
 | `--migrate` / `--uninstall` / `--rollback` | Manage the `/opt/pi-optimiser` install tree. |
 | `--tui` / `--no-tui` | Force or suppress the whiptail menu. |
 | `--yes` / `--non-interactive` | Skip confirmation prompts. |
@@ -202,8 +202,12 @@ clear error if it can't acquire the lock.
   `curl -fsSL` (system CA bundle). The staged tree's entry script is
   run through `bash -n` before the atomic `current` symlink flip,
   so syntactically-broken updates can't land. Opt-in minisign
-  verification (`--require-signature`) is wired; the corresponding
-  signing workflow is [pending](TODO.md).
+  verification (`--require-signature`) is wired — users who want
+  stricter verification can sign the bundle with their own key.
+  There is no official signing pipeline: for a single-maintainer
+  project the signing key and the GitHub credentials share a blast
+  radius, and TLS + pinned-tag + SHA-256 matches the trust posture
+  of every other `curl | bash` installer on the internet.
 - **Config file safety.** Values from `/etc/pi-optimiser/config.yaml`
   (and any `--config <path>`) are `shlex.quote()`-ed in the Python
   emitter before the bash eval. A malicious YAML cannot execute

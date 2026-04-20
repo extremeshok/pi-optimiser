@@ -89,9 +89,13 @@ handles that.
    `validate_proxy_backend_url`, `validate_github_handle`,
    `validate_task_id`. Add new ones there, keep the signature
    `validate_X <value>` → 0 on valid, 1 on invalid.
-9. **Tasks that require a reboot must flag it.** The `--report` and
-   post-run summary surfacing is [still TODO](TODO.md); until then
-   mention "Reboot required" explicitly in your `log_info` line.
+9. **Tasks that require a reboot must flag it.** Declare
+   `reboot_required=1` in the `pi_task_register` call (and the
+   `# reboot_required: true` metadata comment). `apply_once` will
+   call `pi_mark_reboot_required "$task"` on success, and
+   `--report` + the post-run summary surface the flag. Also
+   mention "Reboot required" explicitly in a `log_info` line so
+   the operator sees it without re-reading state.json.
 10. **Python heredocs go through `run_python`**, not raw
     `python3 <<'PY'`. `run_python` propagates exit codes and
     forwards stderr to `log_warn`. The five tasks still using raw
