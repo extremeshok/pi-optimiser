@@ -3,15 +3,6 @@
 Tracked here so new contributors can pick them up without another
 audit pass surfacing the same thing. Organised by effort.
 
-## Medium (a session or two)
-
-- **`--pin-task <id>=<version>`.** The `--freeze <id>` half of
-  per-task version pinning ships (via `freeze_tasks:` in
-  config.yaml, consulted by `apply_once`). The fetch-historical
-  half is deferred: it needs a per-task version manifest fetched
-  from a tag archive. Useful when a specific task regresses on a
-  specific hardware generation but not a correctness need.
-
 ## Deliberately not planned
 
 - **Self-update signing infrastructure.** The `--require-signature`
@@ -34,22 +25,22 @@ audit pass surfacing the same thing. Organised by effort.
   Users who need stricter verification can sign the bundle with
   their own key and run with `--require-signature`.
 
-## Low (parked; narrow audience)
-
-- **`headless_gpu_mem`** — `gpu_mem=16` for truly headless Pi 4 /
-  Pi 3 installs. Pi 5 ignores it (unified memory). Not big enough
-  to be worth its own task until someone asks.
-- **`chrony`** — alternative to systemd-timesyncd for flaky-network
-  devices (mobile Pis, 3G-backed IoT). `apt install chrony` +
-  disable timesyncd. Edge case.
-- **`ipv6_disable`** — sysctl `net.ipv6.conf.all.disable_ipv6=1`.
-  Controversial and mostly cargo-culted; won't ship by default.
-- **`usb_uas_quirks`** — `usb-storage.quirks=VID:PID:u` for UASP-
-  broken SSD adapters. Case-specific per enclosure; hard to
-  automate safely.
+- **`--pin-task <id>=<version>`.** The `--freeze-task <id>` half
+  of per-task version pinning ships (via `freeze_tasks:` in
+  `config.yaml`, consulted by `apply_once`). The fetch-historical
+  half would need a per-task version manifest fetched from a tag
+  archive, plus a resolver that rewrites `lib/tasks/<id>.sh` back
+  to an older version at run time. Substantial complexity for a
+  correctness-adjacent feature nobody has asked for. If a specific
+  task regresses on a specific hardware generation, `--freeze-task`
+  + a hand-edited `lib/tasks/<id>.sh` fork already solves it.
 
 ## Resolved (see CHANGELOG.md)
 
+- **9.3.0**: Tier-3 tasks (`headless_gpu_mem`, `chrony`,
+  `ipv6_disable`, `usb_uas_quirks`) all shipped. New `hailo` task
+  installs the Raspberry Pi AI Kit / AI HAT+ NPU driver stack.
+  Pi 500 support explicitly confirmed via `is_pi5()` coverage.
 - **9.2.1**: state-driven UFW rules + auto-reconcile via
   fingerprint; Docker + Pi Connect in their own "Extra services"
   TUI menu; `remove_bloat` purges CUPS on non-desktop profiles.

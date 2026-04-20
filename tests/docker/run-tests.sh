@@ -109,7 +109,7 @@ if "$BIN" --freeze-task nonexistent_task --yes 2>/dev/null; then
 fi
 pass "--freeze-task unknown-id validation"
 
-step "9.2 flags parse and reach their tasks under --dry-run"
+step "9.2 + 9.3 flags parse and reach their tasks under --dry-run"
 # Each flag should produce "[dry-run] <task> would run" when its
 # opt-in flag is supplied alongside --only <task>. Anything else
 # (unknown flag, gate-not-wired, crash during registration) trips
@@ -120,7 +120,11 @@ for pair in \
   "--quiet-boot quiet_boot" \
   "--disable-leds disable_leds" \
   "--install-pi-connect pi_connect" \
-  "--power-off-halt power_off_halt"; do
+  "--power-off-halt power_off_halt" \
+  "--headless-gpu-mem headless_gpu_mem" \
+  "--install-chrony chrony" \
+  "--disable-ipv6 ipv6_disable" \
+  "--install-hailo hailo"; do
   flag=${pair% *}
   task=${pair#* }
   out=$("$BIN" --dry-run --only "$task" "$flag" --yes 2>&1 || true)
@@ -130,7 +134,18 @@ for pair in \
     exit 1
   fi
 done
-pass "9.2 opt-in flags route to their tasks"
+pass "9.2 + 9.3 opt-in flags route to their tasks"
+
+step "--usb-uas-extra parses VID:PID list and implies --usb-uas-quirks"
+# usb-uas-extra takes an arg; verify the parser accepts the list and
+# that supplying it alone (without --usb-uas-quirks) is enough.
+out=$("$BIN" --dry-run --only usb_uas_quirks --usb-uas-extra "152d:0578,174c:55aa" --yes 2>&1 || true)
+if [[ "$out" != *"[dry-run] usb_uas_quirks would run"* ]]; then
+  printf 'FAIL  --usb-uas-extra alone should gate the usb_uas_quirks task\n' >&2
+  printf '%s\n' "$out" | tail -20 >&2
+  exit 1
+fi
+pass "--usb-uas-extra implies --usb-uas-quirks"
 
 step "--remove-cups applies only on non-desktop profiles"
 # remove_bloat's _remove_bloat_is_headless gate fires when
