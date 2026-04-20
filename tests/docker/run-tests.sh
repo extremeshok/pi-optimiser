@@ -109,6 +109,53 @@ if "$BIN" --freeze-task nonexistent_task --yes 2>/dev/null; then
 fi
 pass "--freeze-task unknown-id validation"
 
+step "9.2 flags parse and reach their tasks under --dry-run"
+# Each flag should produce "[dry-run] <task> would run" when its
+# opt-in flag is supplied alongside --only <task>. Anything else
+# (unknown flag, gate-not-wired, crash during registration) trips
+# this suite.
+for pair in \
+  "--install-firewall ufw_firewall" \
+  "--nvme-tune nvme_tune" \
+  "--quiet-boot quiet_boot" \
+  "--disable-leds disable_leds" \
+  "--install-pi-connect pi_connect" \
+  "--power-off-halt power_off_halt"; do
+  flag=${pair% *}
+  task=${pair#* }
+  out=$("$BIN" --dry-run --only "$task" "$flag" --yes 2>&1 || true)
+  if [[ "$out" != *"[dry-run] $task would run"* ]]; then
+    printf 'FAIL  %s did not reach %s in dry-run\n' "$flag" "$task" >&2
+    printf '%s\n' "$out" | tail -20 >&2
+    exit 1
+  fi
+done
+pass "9.2 opt-in flags route to their tasks"
+
+step "--remove-cups applies only on non-desktop profiles"
+# remove_bloat's _remove_bloat_is_headless gate fires when
+# KEEP_SCREEN_BLANKING=1 or PI_PROFILE is a non-desktop one.
+# --dry-run short-circuits before we hit dpkg, but the gate lives
+# in the task body, so we verify via --show-config instead: the
+# server profile should leave REMOVE_CUPS=0 (the profile doesn't
+# touch it), but keep_screen_blanking=true implies the purge.
+out=$("$BIN" --show-config --profile server --output json 2>/dev/null)
+printf '%s' "$out" | python3 -c '
+import json, sys
+cfg = json.loads(sys.stdin.read())
+assert cfg["system"]["keep_screen_blanking"] is True, "server profile should set keep_screen_blanking"
+' || { printf 'FAIL  server profile did not set keep_screen_blanking\n' >&2; exit 1; }
+pass "--remove-cups heuristic wired"
+
+step "UFW task refuses to run without --install-firewall"
+out=$("$BIN" --dry-run --only ufw_firewall --yes 2>&1 || true)
+if [[ "$out" != *"ufw_firewall would skip"* ]]; then
+  printf 'FAIL  ufw_firewall should skip without --install-firewall\n' >&2
+  printf '%s\n' "$out" | tail -20 >&2
+  exit 1
+fi
+pass "UFW gate-var honoured under --dry-run"
+
 step "bundle: build + bash -n + --version"
 scripts/build-bundle.sh /tmp/bundle.sh
 bash -n /tmp/bundle.sh

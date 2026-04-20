@@ -34,8 +34,39 @@ audit pass surfacing the same thing. Organised by effort.
   Users who need stricter verification can sign the bundle with
   their own key and run with `--require-signature`.
 
+## Low (parked; narrow audience)
+
+- **`headless_gpu_mem`** — `gpu_mem=16` for truly headless Pi 4 /
+  Pi 3 installs. Pi 5 ignores it (unified memory). Not big enough
+  to be worth its own task until someone asks.
+- **`chrony`** — alternative to systemd-timesyncd for flaky-network
+  devices (mobile Pis, 3G-backed IoT). `apt install chrony` +
+  disable timesyncd. Edge case.
+- **`ipv6_disable`** — sysctl `net.ipv6.conf.all.disable_ipv6=1`.
+  Controversial and mostly cargo-culted; won't ship by default.
+- **`usb_uas_quirks`** — `usb-storage.quirks=VID:PID:u` for UASP-
+  broken SSD adapters. Case-specific per enclosure; hard to
+  automate safely.
+
 ## Resolved (see CHANGELOG.md)
 
+- **9.2.1**: state-driven UFW rules + auto-reconcile via
+  fingerprint; Docker + Pi Connect in their own "Extra services"
+  TUI menu; `remove_bloat` purges CUPS on non-desktop profiles.
+- **9.2.0**: six new tasks — `power_off_halt` (Geerling's Pi 5
+  vampire-power tip), `ufw_firewall`, `nvme_tune` (NVMe APST
+  compat), `quiet_boot`, `disable_leds`, `pi_connect`. `sysctl`
+  bumped to include TCP BBR + fq qdisc. Profile bundles refreshed.
+- **9.1.2**: centralised `pi_validate_mutex()` so CLI / YAML / TUI
+  paths catch conflicting task pairs (OC↔underclock, Tailscale↔
+  WireGuard unless `allow_both_vpn`). New
+  `integrations.allow_both_vpn` YAML key.
+- **9.1.1**: TUI-selection gate-var fix (ticked items now flip
+  their gate to 1 so tasks don't self-skip); boot_config no longer
+  emits Pi-4-only keys on Pi 5; `usage()` shows `pi-optimiser`
+  without `./` when launched via the installed symlink. TUI
+  remembers prior selections and un-ticks persist (visited-
+  categories reset).
 - **9.1.0**: Prometheus textfile metrics, `--watch` mode,
   `--diff` preview for config.txt/cmdline.txt, `--freeze-task`,
   Dockerised integration-test harness, bundle parity guard.

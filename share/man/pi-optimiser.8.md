@@ -171,6 +171,13 @@ headless / rack-mounted installs.
 (`rpi-connect`, or `rpi-connect-lite` when no display is attached).
 The operator still runs `rpi-connect signin` to pair the device.
 
+**--remove-cups**
+: Force-purge CUPS + printer-driver packages and their
+`avahi-daemon` / `colord` dependencies. Done automatically for
+`kiosk`, `server`, and `headless-iot` profiles (and whenever
+`KEEP_SCREEN_BLANKING=1`); use this flag to force the purge on a
+plain-desktop install that doesn't need printing.
+
 # SELF-UPDATE (opt-in)
 
 **--check-update**
