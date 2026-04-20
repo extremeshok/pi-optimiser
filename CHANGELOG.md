@@ -1,5 +1,34 @@
 # Changelog
 
+## 9.2.1 — 2026-04-20
+
+### Changed
+- **`ufw_firewall` (→ 1.1.0) opens ports only for services that are
+  actually present, and auto-reconciles when that changes.**
+  Previously it blindly allowed Tailscale / WireGuard interfaces
+  whether they existed or not. Now:
+  - Tailscale rule added only when `tailscale0` is up.
+  - WireGuard rule added only for `wg*` interfaces that exist.
+  - Proxy rule (80/tcp) added only when `PROXY_BACKEND` is set to a
+    real URL or the `pi-optimiser-proxy` nginx symlink is in place.
+  A fingerprint of these inputs is stored in
+  `CONFIG_OPTIMISER_STATE.firewall.fingerprint` at end-of-run; the
+  main loop compares the current fingerprint against stored on the
+  next run and clears the task's completion marker when they differ
+  — so adding Tailscale later triggers a re-reconciliation
+  automatically, no `--force` needed.
+- **Docker + Pi Connect moved to their own TUI menu** ("Extra
+  services"). The category name (`integrations`) is unchanged so
+  existing state markers stay valid; only the TUI top-level entry
+  shifts. Firmware menu now cleanly shows just EEPROM/firmware
+  tasks.
+- **`remove_bloat` (→ 1.2.0) purges CUPS on non-desktop installs.**
+  CUPS + printer-driver packages eat ~100 MB on Pi OS images and
+  pull colord / avahi. Removed automatically for `kiosk`, `server`,
+  `headless-iot` profiles, or when `KEEP_SCREEN_BLANKING=1` /
+  `--remove-cups` / `system.remove_cups: true` is set. Desktop
+  installs keep CUPS intact so printing keeps working.
+
 ## 9.2.0 — 2026-04-20
 
 Research pass on Jeff Geerling's published work, official Raspberry

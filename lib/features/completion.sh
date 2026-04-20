@@ -36,7 +36,7 @@ _pi_optimiser() {
     --watch --diff --no-metrics --metrics-path --freeze-task
     --self-test --show-config --reboot-after
     --install-firewall --power-off-halt --nvme-tune --quiet-boot
-    --disable-leds --install-pi-connect
+    --disable-leds --install-pi-connect --remove-cups
     --completion --help --version
   "
 
@@ -133,6 +133,7 @@ _pi_optimiser() {
     '--quiet-boot[hide splash and silence kernel log]'
     '--disable-leds[turn off activity/power/ethernet LEDs]'
     '--install-pi-connect[install Raspberry Pi Connect]'
+    '--remove-cups[purge CUPS and printer packages]'
     '--completion[emit completion script]:shell:(bash zsh)'
     '--help[show help]'
     '--version[show version]'

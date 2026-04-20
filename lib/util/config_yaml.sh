@@ -241,6 +241,7 @@ out.append(f'REQUESTED_HOSTNAME={sv(get(sy, "hostname"))}')
 out.append(f'REQUESTED_TIMEZONE={sv(get(sy, "timezone"))}')
 out.append(f'REQUESTED_LOCALE={sv(get(sy, "locale"))}')
 out.append(f'KEEP_SCREEN_BLANKING={bv(get(sy, "keep_screen_blanking"))}')
+out.append(f'REMOVE_CUPS={bv(get(sy, "remove_cups"))}')
 
 # Prometheus metrics opt-in + optional path override.
 m = data.get("metrics", {})

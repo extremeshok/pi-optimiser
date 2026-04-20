@@ -3,7 +3,7 @@
 # Coded by Adrian Jon Kriel :: admin@extremeshok.com
 # Project home: https://github.com/extremeshok/pi-optimiser
 # ======================================================================
-# pi-optimiser.sh :: version 9.2.0
+# pi-optimiser.sh :: version 9.2.1
 #======================================================================
 # One-shot optimiser for Raspberry Pi OS desktops. Key capabilities:
 #   - Removes bundled bloatware and trims apt caches for a lean install
@@ -26,7 +26,7 @@ if [[ ${BASH_VERSINFO[0]} -lt 4 ]]; then
 fi
 
 SCRIPT_NAME=$(basename "$0")
-SCRIPT_VERSION="9.2.0"
+SCRIPT_VERSION="9.2.1"
 
 # Globals consumed by sourced lib/util/*.sh modules; shellcheck cannot
 # see across source boundaries so SC2034 would flag them spuriously.
@@ -147,6 +147,7 @@ NVME_TUNE=0
 QUIET_BOOT=0
 DISABLE_LEDS=0
 INSTALL_PI_CONNECT=0
+REMOVE_CUPS=0
 
 # P6 additions — metrics, watch mode, per-task freeze, diff-preview.
 # shellcheck disable=SC2034  # read by lib/features/metrics.sh
@@ -380,6 +381,7 @@ Options:
   --quiet-boot           Hide the rainbow splash and silence kernel log at boot
   --disable-leds         Turn off activity/power/ethernet LEDs (headless/rack)
   --install-pi-connect   Install Raspberry Pi Connect (browser-based remote access)
+  --remove-cups          Purge CUPS/printer packages (auto on kiosk/server/headless-iot)
   --profile <name>       Apply flag bundle: kiosk | server | desktop | headless-iot
   --report               Print a human-readable state report and exit
   --snapshot             Tar key config files to /etc/pi-optimiser/snapshots and exit
@@ -852,6 +854,7 @@ parse_args() {
       --quiet-boot)          QUIET_BOOT=1 ;;
       --disable-leds)        DISABLE_LEDS=1 ;;
       --install-pi-connect)  INSTALL_PI_CONNECT=1 ;;
+      --remove-cups)         REMOVE_CUPS=1 ;;
       --docker-cgroupv2)      DOCKER_CGROUPV2=1 ;;
       --yes|-y|--non-interactive) PI_NON_INTERACTIVE=1 ;;
       --uninstall)           PI_UNINSTALL=1 ;;
@@ -1135,7 +1138,7 @@ main() {
     --overclock-conservative --underclock --pi5-fan-profile --pcie-gen3
     --enable-watchdog --secure-ssh --firmware-update --eeprom-update
     --install-firewall --power-off-halt --nvme-tune --quiet-boot
-    --disable-leds --install-pi-connect
+    --disable-leds --install-pi-connect --remove-cups
     --ssh-import-github --ssh-import-url
     --hostname --timezone --locale --proxy-backend
     --profile --config
@@ -1385,6 +1388,20 @@ main() {
           clear_task_state "$task"
         fi
       else
+        clear_task_state "$task"
+      fi
+    fi
+    # ufw_firewall special case: reconcile when the set of things it
+    # opens ports for (VPN interfaces, proxy symlink, SSH port) has
+    # changed since the last run. Without this the firewall can
+    # silently drift when a VPN is added or removed later.
+    if [[ "$task" == "ufw_firewall" && ${INSTALL_FIREWALL:-0} -eq 1 ]] \
+       && declare -F _ufw_fingerprint >/dev/null 2>&1; then
+      local current_fp stored_fp
+      current_fp=$(_ufw_fingerprint)
+      stored_fp=$(read_json_field "$CONFIG_OPTIMISER_STATE" "firewall.fingerprint" 2>/dev/null || echo "")
+      if [[ -n "$stored_fp" && "$stored_fp" != "$current_fp" ]]; then
+        log_info "Firewall inputs changed ($stored_fp -> $current_fp); re-reconciling"
         clear_task_state "$task"
       fi
     fi

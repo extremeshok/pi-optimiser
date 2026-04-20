@@ -425,9 +425,10 @@ pi_tui_main() {
         system     "System identity, limits, background services" \
         network    "Network stack, proxy, VPNs, DNS cache" \
         hardware   "Clocks, fan, watchdog, PCIe, EEPROM" \
-        display    "Boot config + screen blanking" \
-        security   "SSH hardening + key import" \
-        packages   "Package bundles + integrations" \
+        display    "Boot config, screen blanking, quiet boot, LEDs" \
+        security   "SSH hardening, key import, firewall" \
+        packages   "CLI, diagnostic, and monitoring bundles" \
+        services   "Extra services (Docker, Raspberry Pi Connect)" \
         firmware   "Firmware + EEPROM refresh" \
         values     "Set values for opt-in tasks (hostname, TZ, …)" \
         status     "View current state + task history" \
@@ -443,10 +444,8 @@ pi_tui_main() {
       display)   _pi_tui_category display          "Display" ;;
       security)  _pi_tui_category security         "Security" ;;
       packages)  _pi_tui_category packages         "Packages" ;;
-      firmware)
-        _pi_tui_category firmware-eeprom "Firmware & EEPROM"
-        _pi_tui_category integrations    "Integrations"
-        ;;
+      services)  _pi_tui_category integrations     "Extra services" ;;
+      firmware)  _pi_tui_category firmware-eeprom  "Firmware & EEPROM" ;;
       values)    _pi_tui_forms_menu ;;
       status)
         local tmp
