@@ -29,13 +29,20 @@ _boot_config_entries() {
   # Pi 5 uses unified memory (gpu_mem ignored), runs at rated clock
   # (arm_boost no-op), and ships KMS-only (legacy framebuffer_* keys
   # have no effect). Keep these on Pi 4 and older only.
+  #
+  # gpu_mem=320 is a display-centric split — raises GPU RAM for
+  # dual-display KMS. Don't set it on headless runs
+  # (KEEP_SCREEN_BLANKING=1 or HEADLESS_GPU_MEM=1), since those
+  # paths want the RAM back for the CPU.
   if ! is_pi5; then
     entries+=(
-      "gpu_mem=320"
       "framebuffer_depth=32"
       "framebuffer_ignore_alpha=1"
       "arm_boost=1"
     )
+    if [[ ${KEEP_SCREEN_BLANKING:-0} -eq 0 && ${HEADLESS_GPU_MEM:-0} -eq 0 ]]; then
+      entries+=("gpu_mem=320")
+    fi
   fi
   printf '%s\n' "${entries[@]}"
 }

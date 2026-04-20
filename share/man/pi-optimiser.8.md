@@ -2,7 +2,7 @@
 title: PI-OPTIMISER
 section: 8
 header: System Manager's Manual
-footer: pi-optimiser 9.2.1
+footer: pi-optimiser 9.3.0
 date: 2026-04
 ---
 
@@ -177,6 +177,44 @@ The operator still runs `rpi-connect signin` to pair the device.
 `kiosk`, `server`, and `headless-iot` profiles (and whenever
 `KEEP_SCREEN_BLANKING=1`); use this flag to force the purge on a
 plain-desktop install that doesn't need printing.
+
+**--headless-gpu-mem**
+: Pi 4 / Pi 400 / Pi 3 / Pi Zero 2 only. Set `gpu_mem=16` to hand
+~50-240 MB back to the ARM side on a headless install. Pi 5 and
+Pi 500 skip automatically (unified memory architecture; `gpu_mem`
+is ignored by the firmware). Applied by `server` and
+`headless-iot` profiles.
+
+**--install-chrony**
+: Install `chrony` as the active time sync daemon, replacing
+`systemd-timesyncd` (which the package masks at install time).
+Handles large clock steps and intermittent connectivity better —
+the typical win is on mobile / 3G-backed / solar-powered IoT Pis.
+
+**--disable-ipv6**
+: Disable IPv6 via `/etc/sysctl.d/98-pi-optimiser-ipv6.conf`. The
+drop-in lists the three keys it sets so `--undo` or a manual
+`rm` restores IPv6 cleanly.
+
+**--usb-uas-quirks**
+: Probe `lsusb` against a built-in list of USB-SATA/NVMe bridges
+known to misbehave under UAS (JMS578, JMS567, JMS583, ASM1153E,
+VL715, RTL9210) and append `usb-storage.quirks=VID:PID:u,...` to
+`cmdline.txt`. Reboot required.
+
+**--usb-uas-extra** *VID:PID[,VID:PID…]*
+: Extend the UAS-quirk list with additional pairs the operator
+discovered via `dmesg | grep -i uas`. Implies `--usb-uas-quirks`.
+
+**--install-hailo**
+: Pi 5 / Pi 500 only. Install the Hailo NPU driver stack for the
+Raspberry Pi AI Kit and AI HAT+ (`hailo-all` metapackage, falling
+back to the split `hailort` + `hailo-dkms` + `python3-hailort` +
+`hailo-tappas-core` + `hailofw` list on older Bookworm images).
+Probes `lspci` for the Hailo device and warns on kernels older
+than 6.6.31 (where `hailo-dkms` fails to build). Reboots required
+for the DKMS module to attach. Pair with `--pcie-gen3` for full
+AI HAT+ throughput.
 
 # SELF-UPDATE (opt-in)
 

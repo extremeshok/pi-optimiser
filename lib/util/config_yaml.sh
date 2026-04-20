@@ -207,6 +207,9 @@ out.append(f'INSTALL_CLI_MODERN={bv(get(i, "cli_modern"))}')
 out.append(f'INSTALL_NET_DIAG={bv(get(i, "net_diag"))}')
 out.append(f'ENABLE_DNS_CACHE={bv(get(i, "dns_cache"))}')
 out.append(f'INSTALL_PI_CONNECT={bv(get(i, "pi_connect"))}')
+out.append(f'INSTALL_HAILO={bv(get(i, "hailo"))}')
+out.append(f'INSTALL_CHRONY={bv(get(i, "chrony"))}')
+out.append(f'DISABLE_IPV6={bv(get(i, "disable_ipv6"))}')
 
 h = data.get("hardware", {})
 out.append(f'REQUEST_OC_CONSERVATIVE={bv(get(h, "overclock_conservative"))}')
@@ -219,6 +222,11 @@ out.append(f'DISABLE_BLUETOOTH={bv(get(h, "disable_bluetooth"))}')
 out.append(f'QUIET_BOOT={bv(get(h, "quiet_boot"))}')
 out.append(f'DISABLE_LEDS={bv(get(h, "disable_leds"))}')
 out.append(f'NVME_TUNE={bv(get(h, "nvme_tune"))}')
+out.append(f'HEADLESS_GPU_MEM={bv(get(h, "headless_gpu_mem"))}')
+out.append(f'USB_UAS_QUIRKS={bv(get(h, "usb_uas_quirks"))}')
+_uas_extra = get(h, "usb_uas_extra")
+if _uas_extra:
+    out.append(f'USB_UAS_EXTRA={sv(_uas_extra)}; USB_UAS_QUIRKS=1')
 for v in ("temp_limit", "temp_soft_limit", "initial_turbo"):
     val = get(h, v)
     if val:

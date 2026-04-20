@@ -16,6 +16,7 @@ disable_swap
 zram
 fstrim
 nvme_tune
+usb_uas_quirks
 
 # --- Kernel & runtime tuning -----------------------------------------
 sysctl
@@ -23,6 +24,7 @@ cpu_governor
 apt_conf
 unattended
 cli_tools
+chrony
 
 # --- System identity --------------------------------------------------
 locale
@@ -35,6 +37,7 @@ screen_blanking
 disable_services
 quiet_boot
 disable_leds
+headless_gpu_mem
 
 # --- Networking -------------------------------------------------------
 proxy
@@ -43,6 +46,7 @@ wifi_bt_power
 node_exporter
 tailscale
 wireguard
+ipv6_disable
 
 # --- Hardware & clocks ------------------------------------------------
 boot_config
@@ -68,6 +72,7 @@ smartmontools
 # --- Integrations -----------------------------------------------------
 docker
 pi_connect
+hailo
 
 # --- Firmware (reboot-required; runs last) ---------------------------
 eeprom_refresh

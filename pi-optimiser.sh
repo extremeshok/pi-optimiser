@@ -3,7 +3,7 @@
 # Coded by Adrian Jon Kriel :: admin@extremeshok.com
 # Project home: https://github.com/extremeshok/pi-optimiser
 # ======================================================================
-# pi-optimiser.sh :: version 9.2.1
+# pi-optimiser.sh :: version 9.3.0
 #======================================================================
 # One-shot optimiser for Raspberry Pi OS desktops. Key capabilities:
 #   - Removes bundled bloatware and trims apt caches for a lean install
@@ -26,7 +26,7 @@ if [[ ${BASH_VERSINFO[0]} -lt 4 ]]; then
 fi
 
 SCRIPT_NAME=$(basename "$0")
-SCRIPT_VERSION="9.2.1"
+SCRIPT_VERSION="9.3.0"
 
 # Globals consumed by sourced lib/util/*.sh modules; shellcheck cannot
 # see across source boundaries so SC2034 would flag them spuriously.
@@ -148,6 +148,12 @@ QUIET_BOOT=0
 DISABLE_LEDS=0
 INSTALL_PI_CONNECT=0
 REMOVE_CUPS=0
+HEADLESS_GPU_MEM=0
+INSTALL_CHRONY=0
+DISABLE_IPV6=0
+USB_UAS_QUIRKS=0
+USB_UAS_EXTRA=""
+INSTALL_HAILO=0
 
 # P6 additions — metrics, watch mode, per-task freeze, diff-preview.
 # shellcheck disable=SC2034  # read by lib/features/metrics.sh
@@ -382,6 +388,12 @@ Options:
   --disable-leds         Turn off activity/power/ethernet LEDs (headless/rack)
   --install-pi-connect   Install Raspberry Pi Connect (browser-based remote access)
   --remove-cups          Purge CUPS/printer packages (auto on kiosk/server/headless-iot)
+  --headless-gpu-mem     Pi <=4: shrink GPU mem split to 16 MB for headless (Pi 5 ignored)
+  --install-chrony       Replace systemd-timesyncd with chrony (flaky-network devices)
+  --disable-ipv6         Disable IPv6 via sysctl (leaves a restorable drop-in)
+  --usb-uas-quirks       Auto-detect known-bad USB-SATA adapters and disable UAS
+  --usb-uas-extra <list> Extra VID:PID pairs for UAS quirks (comma-separated)
+  --install-hailo        Pi 5: install Hailo NPU drivers for the AI Kit / AI HAT+
   --profile <name>       Apply flag bundle: kiosk | server | desktop | headless-iot
   --report               Print a human-readable state report and exit
   --snapshot             Tar key config files to /etc/pi-optimiser/snapshots and exit
@@ -855,6 +867,15 @@ parse_args() {
       --disable-leds)        DISABLE_LEDS=1 ;;
       --install-pi-connect)  INSTALL_PI_CONNECT=1 ;;
       --remove-cups)         REMOVE_CUPS=1 ;;
+      --headless-gpu-mem)    HEADLESS_GPU_MEM=1 ;;
+      --install-chrony)      INSTALL_CHRONY=1 ;;
+      --disable-ipv6)        DISABLE_IPV6=1 ;;
+      --usb-uas-quirks)      USB_UAS_QUIRKS=1 ;;
+      --usb-uas-extra)
+        if [[ $# -lt 2 ]]; then echo "--usb-uas-extra requires a VID:PID[,VID:PID] list" >&2; exit 1; fi
+        USB_UAS_EXTRA=$2; USB_UAS_QUIRKS=1; shift
+        ;;
+      --install-hailo)       INSTALL_HAILO=1 ;;
       --docker-cgroupv2)      DOCKER_CGROUPV2=1 ;;
       --yes|-y|--non-interactive) PI_NON_INTERACTIVE=1 ;;
       --uninstall)           PI_UNINSTALL=1 ;;
@@ -1139,6 +1160,8 @@ main() {
     --enable-watchdog --secure-ssh --firmware-update --eeprom-update
     --install-firewall --power-off-halt --nvme-tune --quiet-boot
     --disable-leds --install-pi-connect --remove-cups
+    --headless-gpu-mem --install-chrony --disable-ipv6
+    --usb-uas-quirks --usb-uas-extra --install-hailo
     --ssh-import-github --ssh-import-url
     --hostname --timezone --locale --proxy-backend
     --profile --config

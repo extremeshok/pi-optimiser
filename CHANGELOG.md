@@ -1,5 +1,52 @@
 # Changelog
 
+## 9.3.0 — 2026-04-20
+
+Clears the Tier-3 research items and adds Hailo NPU support.
+
+### Added (five new tasks)
+- **`headless_gpu_mem`** (display) — Pi 4 / Pi 400 / Pi 3 / Pi Zero 2
+  only. Sets `gpu_mem=16` to hand ~50-240 MB back to the CPU on
+  headless deployments. Pi 5 / Pi 500 skip automatically because
+  they use unified memory (VideoCore 7 + IOMMU) where `gpu_mem` is
+  ignored. `boot_config` no longer sets `gpu_mem=320` when
+  `KEEP_SCREEN_BLANKING=1` or `HEADLESS_GPU_MEM=1`, so the two no
+  longer fight over that key.
+- **`chrony`** (system) — swaps `systemd-timesyncd` for `chrony`,
+  which handles large step-corrections and flaky connectivity
+  better. Mobile / 3G-backed / solar-powered IoT Pis benefit most.
+- **`ipv6_disable`** (network) — writes a dedicated sysctl drop-in
+  at `/etc/sysctl.d/98-pi-optimiser-ipv6.conf` listing the three
+  keys it sets. Opt-in (IPv6 is usually safer left on).
+- **`usb_uas_quirks`** (storage) — probes `lsusb` against a
+  built-in list of USB-SATA/NVMe bridges (JMS578, JMS567, JMS583,
+  ASM1153E, VL715, RTL9210) known to misbehave under UAS and
+  appends `usb-storage.quirks=VID:PID:u` to `cmdline.txt`. Extra
+  pairs can be supplied via `--usb-uas-extra` /
+  `hardware.usb_uas_extra`.
+- **`hailo`** (integrations) — installs the Raspberry Pi AI Kit /
+  AI HAT+ driver stack (`hailo-all` metapackage, with a fallback
+  to the split packages for older images). Probes `lspci` for the
+  NPU, warns on kernels older than 6.6.31, and suggests pairing
+  with `--pcie-gen3` for full throughput. LLM / model inference
+  deliberately out of scope — this task installs the driver layer
+  only.
+
+### Changed
+- **Profile bundles refreshed** to use `HEADLESS_GPU_MEM` on
+  `server` and `headless-iot` (no-op on Pi 5).
+- **`boot_config`** conditionally skips `gpu_mem=320` when
+  headless, so it and `headless_gpu_mem` can coexist without a
+  last-write-wins race.
+
+### Pi 500 support
+Pi 500 has always been covered — `is_pi5()` matches both
+"Raspberry Pi 5" and "Raspberry Pi 500" model strings, so every
+Pi-5-gated task (`pcie_gen3`, `pi5_fan`, `oc_conservative`'s 2.8
+GHz profile, `eeprom_config`, `power_off_halt`, `hailo`) applies
+to the 500 transparently. This release confirms the behaviour in
+the docs; no code changes were needed.
+
 ## 9.2.1 — 2026-04-20
 
 ### Changed

@@ -16,9 +16,9 @@ pi_list_profiles() {
 {
   "profiles": [
     { "name": "kiosk",        "enables": ["INSTALL_ZRAM", "WIFI_POWERSAVE_OFF", "SECURE_SSH", "QUIET_BOOT"] },
-    { "name": "server",       "enables": ["INSTALL_ZRAM", "SECURE_SSH", "INSTALL_SMARTMONTOOLS", "INSTALL_NODE_EXPORTER", "ENABLE_DNS_CACHE", "INSTALL_FIREWALL", "DISABLE_LEDS", "KEEP_SCREEN_BLANKING"] },
+    { "name": "server",       "enables": ["INSTALL_ZRAM", "SECURE_SSH", "INSTALL_SMARTMONTOOLS", "INSTALL_NODE_EXPORTER", "ENABLE_DNS_CACHE", "INSTALL_FIREWALL", "DISABLE_LEDS", "HEADLESS_GPU_MEM", "KEEP_SCREEN_BLANKING"] },
     { "name": "desktop",      "enables": ["INSTALL_CLI_MODERN"] },
-    { "name": "headless-iot", "enables": ["INSTALL_WATCHDOG", "DISABLE_BLUETOOTH", "WIFI_POWERSAVE_OFF", "REQUEST_UNDERCLOCK", "DISABLE_LEDS", "QUIET_BOOT", "KEEP_SCREEN_BLANKING"] }
+    { "name": "headless-iot", "enables": ["INSTALL_WATCHDOG", "DISABLE_BLUETOOTH", "WIFI_POWERSAVE_OFF", "REQUEST_UNDERCLOCK", "DISABLE_LEDS", "QUIET_BOOT", "HEADLESS_GPU_MEM", "KEEP_SCREEN_BLANKING"] }
   ]
 }
 JSON
@@ -336,7 +336,9 @@ pi_apply_profile() {
     server)
       # Headless server: tmpfs-heavy, ZRAM, SSH hardened + key import
       # expected, smartd for NVMe, node_exporter for metrics, no HDMI,
-      # UFW firewall active, status LEDs off for rack hygiene.
+      # UFW firewall active, status LEDs off for rack hygiene. Shrink
+      # the gpu_mem split on Pi 4 and older (no-op on Pi 5 which uses
+      # unified memory — the task itself handles the model check).
       INSTALL_ZRAM=1
       SECURE_SSH=1
       INSTALL_SMARTMONTOOLS=1
@@ -344,6 +346,7 @@ pi_apply_profile() {
       ENABLE_DNS_CACHE=1
       INSTALL_FIREWALL=1
       DISABLE_LEDS=1
+      HEADLESS_GPU_MEM=1
       KEEP_SCREEN_BLANKING=1  # no display, skip the screen_blanking work
       ;;
     desktop)
@@ -353,13 +356,15 @@ pi_apply_profile() {
     headless-iot)
       # Zero 2 / Pi 3 class low-power: watchdog, no Bluetooth, underclock,
       # no HDMI, no power-save on WiFi (want reliable connectivity),
-      # status LEDs off, quiet boot so serial console isn't spammed.
+      # status LEDs off, quiet boot so serial console isn't spammed,
+      # 16 MB GPU split (Zero 2's 512 MB RAM really wants that back).
       INSTALL_WATCHDOG=1
       DISABLE_BLUETOOTH=1
       WIFI_POWERSAVE_OFF=1
       REQUEST_UNDERCLOCK=1
       DISABLE_LEDS=1
       QUIET_BOOT=1
+      HEADLESS_GPU_MEM=1
       KEEP_SCREEN_BLANKING=1
       ;;
     *)

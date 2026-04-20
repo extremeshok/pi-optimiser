@@ -37,6 +37,8 @@ _pi_optimiser() {
     --self-test --show-config --reboot-after
     --install-firewall --power-off-halt --nvme-tune --quiet-boot
     --disable-leds --install-pi-connect --remove-cups
+    --headless-gpu-mem --install-chrony --disable-ipv6
+    --usb-uas-quirks --usb-uas-extra --install-hailo
     --completion --help --version
   "
 
@@ -134,6 +136,12 @@ _pi_optimiser() {
     '--disable-leds[turn off activity/power/ethernet LEDs]'
     '--install-pi-connect[install Raspberry Pi Connect]'
     '--remove-cups[purge CUPS and printer packages]'
+    '--headless-gpu-mem[Pi <=4: shrink GPU mem split to 16 MB]'
+    '--install-chrony[replace timesyncd with chrony]'
+    '--disable-ipv6[disable IPv6 via sysctl]'
+    '--usb-uas-quirks[disable UAS on known-bad USB-SATA adapters]'
+    '--usb-uas-extra[extra VID:PID pairs for UAS quirks]:pairs:'
+    '--install-hailo[Pi 5: install Hailo NPU drivers]'
     '--completion[emit completion script]:shell:(bash zsh)'
     '--help[show help]'
     '--version[show version]'
