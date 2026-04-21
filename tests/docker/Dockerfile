@@ -17,11 +17,18 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # Stubs for Pi-specific binaries that tasks probe with `command -v`.
+# Each stub logs its invocation to $PI_OPTIMISER_STUB_LOG so tests
+# can assert a task actually reached the binary (rather than trivially
+# passing by skipping). New in 9.3: lspci (hailo probe) and lsusb
+# (usb_uas_quirks probe) ship a realistic fixture line each, so the
+# detect-paths in those tasks exercise their match logic.
 COPY tests/docker/stubs/ /usr/local/bin/
 RUN chmod +x /usr/local/bin/vcgencmd \
              /usr/local/bin/rpi-eeprom-config \
              /usr/local/bin/rpi-update \
-             /usr/local/bin/rpi-eeprom-update
+             /usr/local/bin/rpi-eeprom-update \
+             /usr/local/bin/lspci \
+             /usr/local/bin/lsusb
 
 # Fake /boot/firmware so config.txt / cmdline.txt edits have a target.
 RUN mkdir -p /boot/firmware /var/log /etc/pi-optimiser \

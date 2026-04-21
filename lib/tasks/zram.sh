@@ -108,9 +108,7 @@ run_zram() {
   ensure_packages systemd-zram-generator
 
   mkdir -p "$(dirname "$ZRAM_CONF_FILE")"
-  if [[ -f "$ZRAM_CONF_FILE" ]]; then
-    backup_file "$ZRAM_CONF_FILE"
-  fi
+  record_created "$ZRAM_CONF_FILE"
 
   if [[ -n "$ZRAM_ALGO_OVERRIDE" ]]; then
     log_info "Using user-specified ZRAM compression algorithm: $algo"

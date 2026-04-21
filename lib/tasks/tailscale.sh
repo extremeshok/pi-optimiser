@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: tailscale
-# version: 1.1.0
+# version: 1.2.0
 # description: Install the Tailscale VPN client
 # category: network
 # default_enabled: 0
@@ -12,7 +12,7 @@
 pi_task_register tailscale \
   description="Install the Tailscale VPN client" \
   category=network \
-  version=1.1.0 \
+  version=1.2.0 \
   default_enabled=0 \
   flags="--install-tailscale" \
   gate_var=INSTALL_TAILSCALE
@@ -21,6 +21,13 @@ run_tailscale() {
   if [[ ${INSTALL_TAILSCALE:-0} -eq 0 ]]; then
     log_info "Tailscale not requested; skipping"
     pi_skip_reason "not requested"
+    return 2
+  fi
+  # Fail fast offline: the install pulls the Tailscale signing key and
+  # repo index over HTTPS before touching apt.
+  if [[ ${NETWORK_AVAILABLE:-1} -eq 0 ]]; then
+    log_warn "Network unavailable; cannot download Tailscale signing key/packages"
+    pi_skip_reason "network unavailable"
     return 2
   fi
   load_os_release
@@ -38,12 +45,26 @@ run_tailscale() {
   key_dir=$(dirname "$TAILSCALE_KEY_FILE")
   list_dir=$(dirname "$TAILSCALE_LIST_FILE")
   mkdir -p "$key_dir" "$list_dir"
+  # Record the keyfile + apt list BEFORE writing so `--undo tailscale`
+  # removes both and the repo is fully detached from apt.
+  record_created "$TAILSCALE_KEY_FILE"
+  record_created "$TAILSCALE_LIST_FILE"
   key_url="https://pkgs.tailscale.com/stable/${repo_id}/${repo_suite}.noarmor.gpg"
-  if ! curl -fsSL "$key_url" | gpg --dearmor > "$TAILSCALE_KEY_FILE"; then
+  # Secure curl defaults for the Tailscale apt signing key: HTTPS-only,
+  # bounded redirects/timeouts, TLS 1.2+, retry-with-backoff.
+  local -a _curl_secure=(
+    --fail --silent --show-error --location
+    --proto '=https' --proto-redir '=https'
+    --max-redirs 5
+    --connect-timeout 15 --max-time 120
+    --tlsv1.2
+    --retry 3 --retry-delay 2 --retry-connrefused
+  )
+  if ! curl "${_curl_secure[@]}" "$key_url" | gpg --dearmor > "$TAILSCALE_KEY_FILE"; then
     if [[ $repo_suite != "bookworm" ]]; then
       local fallback_url="https://pkgs.tailscale.com/stable/${repo_id}/bookworm.noarmor.gpg"
       log_warn "Tailscale key for $repo_suite unavailable; falling back to bookworm"
-      if curl -fsSL "$fallback_url" | gpg --dearmor > "$TAILSCALE_KEY_FILE"; then
+      if curl "${_curl_secure[@]}" "$fallback_url" | gpg --dearmor > "$TAILSCALE_KEY_FILE"; then
         repo_suite=bookworm
       else
         log_error "Failed to download Tailscale signing key from $fallback_url"

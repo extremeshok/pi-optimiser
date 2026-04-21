@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Stub lsusb — emits a single known-bad USB-SATA bridge so
+# lib/tasks/usb_uas_quirks.sh::_usb_uas_detect sees a hit and
+# exercises the cmdline.txt mutation path. Call-recording as above.
+log=${PI_OPTIMISER_STUB_LOG:-/tmp/pi-optimiser-stub.log}
+printf 'lsusb %s\n' "$*" >> "$log" 2>/dev/null || true
+
+# Match the real lsusb output format exactly — the task parses this
+# line with awk '{for(i=1;i<=NF;i++) if ($i=="ID") print $(i+1)}', so
+# the word ID must be the column preceding VID:PID.
+printf 'Bus 002 Device 004: ID 152d:0578 JMicron Technology Corp. JMS578 SATA 6Gb/s bridge\n'
+printf 'Bus 001 Device 002: ID 1d6b:0002 Linux Foundation 2.0 root hub\n'
+exit 0

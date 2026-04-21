@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: screen_blanking
-# version: 1.1.0
+# version: 1.1.1
 # description: Stop the console and desktop from blanking the screen
 # category: display
 # default_enabled: 1
@@ -11,7 +11,7 @@
 pi_task_register screen_blanking \
   description="Stop the console and desktop from blanking the screen" \
   category=display \
-  version=1.1.0 \
+  version=1.1.1 \
   default_enabled=1 \
   skip_var=KEEP_SCREEN_BLANKING
 
@@ -62,6 +62,11 @@ PY
   local lightdm_dir
   lightdm_dir=$(dirname "$LIGHTDM_NOBLANK_FILE")
   if [[ -d "$lightdm_dir" ]]; then
+    # Capture any prior content (someone may have hand-tuned the
+    # no-blank drop-in) so --undo can restore it; if the file doesn't
+    # exist, record it as "created" so --undo deletes rather than
+    # trying to restore from a non-existent backup.
+    record_created "$LIGHTDM_NOBLANK_FILE"
     cat <<'CFG' > "$LIGHTDM_NOBLANK_FILE"
 [Seat:*]
 xserver-command=X -s 0 -dpms

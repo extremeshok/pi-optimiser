@@ -48,7 +48,11 @@ if not runs:
 else:
     last = runs[-1]
     for entry in last.get("files", []):
-        print(f"  {entry.get('original')} <- {entry.get('backup')}")
+        original = entry.get("original")
+        if entry.get("created"):
+            print(f"  rm {original}")
+        else:
+            print(f"  {original} <- {entry.get('backup')}")
 PY
     return 0
   fi
@@ -64,7 +68,17 @@ PY
     esac
   fi
 
-  JOURNAL="$journal" run_python <<'PY' || { log_error "undo: journal parse failed"; return 1; }
+  # Capture the Python output so the shell can react to "REMOVED"
+  # lines by disabling systemd units and reloading the daemon. Tee to
+  # stdout so operators still see per-file results live.
+  #
+  # Defence-in-depth: the journal is root:root 0600, but we still
+  # refuse to act on an `original` path that isn't absolute or that
+  # contains a `..` component. A corrupted/malicious journal with
+  # `original=/../etc/passwd` would otherwise have os.remove follow
+  # the traversal. Same guard for `backup`.
+  local _undo_out
+  _undo_out=$(JOURNAL="$journal" run_python <<'PY'
 import json, os, shutil, sys
 journal_path = os.environ["JOURNAL"]
 with open(journal_path) as fh:
@@ -75,26 +89,185 @@ if not runs:
     sys.exit(0)
 last = runs[-1]  # most recent run is appended last
 restored = 0
+removed = 0
 missing = 0
+rejected = 0
+failed = 0
+
+def _safe_path(p):
+    """Reject traversal / relative paths in journal entries. Returns
+    the path unchanged when safe, or None when unsafe.
+    Defence-in-depth only; the journal is root:root 0600 in normal use."""
+    if not isinstance(p, str) or not p:
+        return None
+    if not p.startswith("/"):
+        return None
+    # Any `..` segment is rejected outright — rules out /../etc/passwd,
+    # /etc/foo/../../shadow, etc. os.path.normpath would resolve these
+    # to the same file but accepting traversal forms lets a tampered
+    # journal hide intent from audit logs.
+    if ".." in p.split("/"):
+        return None
+    # Require canonical form — no doubled slashes, no trailing slash
+    # (except on "/", which is never a valid target here). A benign
+    # operator-typed path like /etc/foo will normalise to itself; a
+    # crafted /etc/foo//../bar will differ and be rejected.
+    if os.path.normpath(p) != p:
+        return None
+    return p
+
 for entry in last.get("files", []):
     original = entry.get("original")
-    backup = entry.get("backup")
-    if not original or not backup:
+    if not original:
         continue
-    if not os.path.exists(backup):
-        print(f"MISSING\t{backup}")
+    safe_original = _safe_path(original)
+    if safe_original is None:
+        print(f"REJECT\t{original}\tunsafe path")
+        rejected += 1
+        continue
+    # "created" record — task wrote a brand-new file, so --undo deletes
+    # it. A file that was already removed by hand is not a failure; a
+    # missing create record is logged to stderr but doesn't fail undo.
+    if entry.get("created"):
+        try:
+            if os.path.lexists(safe_original):
+                os.remove(safe_original)
+                print(f"REMOVED\t{safe_original}")
+                removed += 1
+            else:
+                print(f"GONE\t{safe_original}")
+        except Exception as e:
+            print(f"FAIL\t{safe_original}\t{e}")
+            failed += 1
+        continue
+    backup = entry.get("backup")
+    if not backup:
+        continue
+    safe_backup = _safe_path(backup)
+    if safe_backup is None:
+        print(f"REJECT\t{backup}\tunsafe backup path")
+        rejected += 1
+        continue
+    # Use lexists so we detect a broken symlink backup too.
+    if not os.path.lexists(safe_backup):
+        print(f"MISSING\t{safe_backup}")
         missing += 1
         continue
-    # Move original out of the way before copying the backup back so
-    # the post-restore file has the backup's mtime/perms.
     try:
-        shutil.copy2(backup, original)
-        print(f"RESTORED\t{original}\t<-\t{backup}")
+        if entry.get("is_symlink"):
+            # Re-create the symlink atomically. Older journals without
+            # link_target fall back to reading the backup directly.
+            target = entry.get("link_target") or os.readlink(safe_backup)
+            if os.path.lexists(safe_original):
+                os.remove(safe_original)
+            os.symlink(target, safe_original)
+        else:
+            # copy2 preserves mtime but drops ownership — reapply mode,
+            # uid, and gid from the journal afterwards so --undo fully
+            # re-establishes the pristine state. Tolerate owner/mode
+            # failures on exotic filesystems (e.g. FAT under /boot).
+            shutil.copy2(safe_backup, safe_original)
+            mode = entry.get("mode")
+            uid = entry.get("uid")
+            gid = entry.get("gid")
+            if mode is not None:
+                try:
+                    os.chmod(safe_original, mode)
+                except OSError:
+                    pass
+            if uid is not None and gid is not None:
+                try:
+                    os.chown(safe_original, uid, gid)
+                except (OSError, PermissionError):
+                    pass
+        print(f"RESTORED\t{safe_original}\t<-\t{safe_backup}")
         restored += 1
     except Exception as e:
-        print(f"FAIL\t{original}\t{e}")
-print(f"SUMMARY\tlast_run={last.get('run_id')}\trestored={restored}\tmissing={missing}")
+        print(f"FAIL\t{safe_original}\t{e}")
+        failed += 1
+print(f"SUMMARY\tlast_run={last.get('run_id')}\trestored={restored}\tremoved={removed}\tmissing={missing}\trejected={rejected}\tfailed={failed}")
 PY
+  ) || { log_error "undo: journal parse failed"; return 1; }
+  printf '%s\n' "$_undo_out"
+
+  # Systemd housekeeping: for every REMOVED line whose path is a unit
+  # under /etc/systemd/ we stop + disable the unit before deletion
+  # (the rm has already happened, but disable+daemon-reload is still
+  # needed to drop the enable symlinks + tell systemd the unit is
+  # gone). Drop-in directories get a plain daemon-reload.
+  #
+  # Also parse the SUMMARY line so missing/rejected/failed entries
+  # surface as a non-zero exit. A silent "no backup, no restore" used
+  # to sail through with exit 0 — operators would think the rollback
+  # succeeded when nothing had actually been touched.
+  local _reload_needed=0 _line _path _unit
+  local _summary_line="" _rc=0
+  while IFS= read -r _line; do
+    [[ -z "$_line" ]] && continue
+    case "$_line" in
+      REMOVED$'\t'*)
+        _path=${_line#REMOVED$'\t'}
+        case "$_path" in
+          /etc/systemd/system/*.service|/etc/systemd/system/*.timer|/etc/systemd/system/*.socket|/etc/systemd/system/*.path|/etc/systemd/system/*.mount)
+            _unit=$(basename "$_path")
+            systemctl disable --now "$_unit" >/dev/null 2>&1 || true
+            _reload_needed=1
+            ;;
+          /etc/systemd/*)
+            # Anything under /etc/systemd — unit file, drop-in dir,
+            # journald.conf.d/, system.conf.d/, resolved.conf.d/, etc.
+            # The *.service/*.timer branch above already handled enable
+            # bookkeeping; here we just need a daemon-reload so the
+            # dropped snippet stops taking effect immediately.
+            _reload_needed=1
+            ;;
+        esac
+        ;;
+      SUMMARY$'\t'*)
+        _summary_line=$_line
+        ;;
+    esac
+  done <<< "$_undo_out"
+  if (( _reload_needed == 1 )); then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+  fi
+
+  # Parse the SUMMARY line for missing/failed/rejected counts. These
+  # are hard failures: a MISSING backup means the operator cleaned up
+  # the restore target and there's nothing we can do; a REJECT means
+  # the journal carried an unsafe path we refused to touch; a FAIL
+  # means an exception was raised mid-restore. In all three cases the
+  # state is not what the operator asked for, so we must exit non-zero.
+  if [[ -n "$_summary_line" ]]; then
+    local _kv _k _v _missing=0 _rejected=0 _failed=0
+    for _kv in ${_summary_line#SUMMARY$'\t'}; do
+      _k=${_kv%%=*}
+      _v=${_kv#*=}
+      case "$_k" in
+        missing)  _missing=$_v ;;
+        rejected) _rejected=$_v ;;
+        failed)   _failed=$_v ;;
+      esac
+    done
+    if (( _missing > 0 )); then
+      log_error "undo: $_missing backup file(s) are gone — cannot restore; see MISSING lines above"
+      _rc=1
+    fi
+    if (( _rejected > 0 )); then
+      log_error "undo: $_rejected journal entry/entries refused as unsafe paths (see REJECT lines)"
+      _rc=1
+    fi
+    if (( _failed > 0 )); then
+      log_error "undo: $_failed file(s) failed to restore/remove; see FAIL lines above"
+      _rc=1
+    fi
+  fi
+  if (( _rc != 0 )); then
+    # Don't clear the completion marker on partial failure — the
+    # operator needs to investigate before the task re-runs.
+    log_warn "Leaving completion marker for '$task' intact; resolve the errors above and retry"
+    return "$_rc"
+  fi
 
   # Clear the completion marker so the task will be re-evaluated.
   clear_task_state "$task"

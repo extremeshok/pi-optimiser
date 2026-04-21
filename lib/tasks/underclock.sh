@@ -38,18 +38,25 @@ run_underclock() {
 
   local -a entries=()
   local profile=""
+  # Model-specific values — route into the matching [piN] section so
+  # a card moved to a different Pi falls back to its own clocks.
+  local section="all"
   if is_pi5; then
     entries=("arm_freq=1800" "gpu_freq=700")
     profile="pi5_underclock"
+    section="pi5"
   elif is_pi4; then
     entries=("arm_freq=1200" "gpu_freq=400")
     profile="pi4_underclock"
+    section="pi4"
   elif is_pi3; then
     entries=("arm_freq=1000" "gpu_freq=300")
     profile="pi3_underclock"
+    section="pi3"
   elif is_pizero2; then
     entries=("arm_freq=900" "gpu_freq=300")
     profile="pi_zero2_underclock"
+    section="pi02"
   else
     log_info "Underclock not supported on model ${SYSTEM_MODEL:-unknown}"
     pi_skip_reason "model unsupported"
@@ -60,7 +67,7 @@ run_underclock() {
   local entry rc applied=0 safe_key
   for entry in "${entries[@]}"; do
     rc=0
-    ensure_config_key_value "$entry" "$CONFIG_TXT_FILE" || rc=$?
+    ensure_config_key_value "$entry" "$CONFIG_TXT_FILE" "$section" || rc=$?
     if [[ $rc -eq 0 ]]; then
       log_info "Applied $entry to config.txt"
       safe_key=${entry//=/_}

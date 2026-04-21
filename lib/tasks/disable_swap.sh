@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: disable_swap
-# version: 1.1.0
+# version: 1.1.1
 # description: Turn off the default swap file (best with 2 GB+ RAM)
 # category: storage
 # default_enabled: 1
@@ -10,7 +10,7 @@
 pi_task_register disable_swap \
   description="Turn off the default swap file (best with 2 GB+ RAM)" \
   category=storage \
-  version=1.1.0 \
+  version=1.1.1 \
   default_enabled=1
 
 run_disable_swap() {
@@ -32,6 +32,7 @@ run_disable_swap() {
     fi
   fi
   if [[ -f /etc/dphys-swapfile ]]; then
+    backup_file /etc/dphys-swapfile
     sed -i 's/^CONF_SWAPSIZE=.*/CONF_SWAPSIZE=0/' /etc/dphys-swapfile
   fi
   swapoff -a >/dev/null 2>&1 || true

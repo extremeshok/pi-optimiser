@@ -52,9 +52,11 @@ run_pi5_fan() {
     "dtparam=fan_temp3_speed=255"
   )
   local entry rc applied=0
+  # Pi 5 fan dtparams live under [pi5] so a user file ending in
+  # [none] or [pi4] doesn't silently swallow the fan curve.
   for entry in "${entries[@]}"; do
     rc=0
-    ensure_config_key_value "$entry" "$CONFIG_TXT_FILE" || rc=$?
+    ensure_config_key_value "$entry" "$CONFIG_TXT_FILE" pi5 || rc=$?
     if [[ $rc -eq 0 ]]; then
       applied=1
     elif [[ $rc -gt 1 ]]; then

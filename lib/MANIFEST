@@ -4,10 +4,29 @@
 # Tasks present in lib/tasks/ but missing here are appended at the end
 # with a warning — drop-ins still run, just not in a curated slot.
 
+# --- System upgrade (always runs first, every invocation) -------------
+full_upgrade
+
 # --- Cleanup & foundations -------------------------------------------
 remove_bloat
 
+# --- Kernel & runtime tuning -----------------------------------------
+# apt_conf quiets apt-daily + sets Install-Recommends=0 BEFORE any task
+# that does ensure_packages (zram, locale, cli_tools, unattended, ...),
+# so installs don't pull unneeded suggests and a background apt-daily
+# can't hold the dpkg lock. sysctl lands here too so its vm.* knobs are
+# live before zram configures swap behaviour.
+sysctl
+cpu_governor
+apt_conf
+unattended
+cli_tools
+chrony
+
 # --- Storage & filesystems -------------------------------------------
+# zram uses ensure_packages (systemd-zram-generator) so it must run
+# AFTER apt_conf. The rest of this block is pure fstab / systemd unit
+# toggles and has no apt dependency.
 fstab
 tmpfs_tmp
 journald
@@ -17,14 +36,6 @@ zram
 fstrim
 nvme_tune
 usb_uas_quirks
-
-# --- Kernel & runtime tuning -----------------------------------------
-sysctl
-cpu_governor
-apt_conf
-unattended
-cli_tools
-chrony
 
 # --- System identity --------------------------------------------------
 locale

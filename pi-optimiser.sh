@@ -19,6 +19,14 @@
 #   - Run as root (sudo ./pi-optimiser.sh)
 # ======================================================================
 set -euo pipefail
+# Force a strict umask so every file/dir this script creates in /etc,
+# /boot/firmware, /var/log or the install tree lands with sensible
+# mode bits even if the invoking shell leaked a permissive umask
+# (some CI environments, misconfigured sudoers, or broken /etc/profile
+# entries can set umask 0000). Individual tasks still chmod explicitly
+# where they need a specific mode (0600 for journals, 0644 for systemd
+# units) — this is just the fallback.
+umask 0022
 
 if [[ ${BASH_VERSINFO[0]} -lt 4 ]]; then
   echo "pi-optimiser.sh requires Bash 4.0 or newer." >&2
@@ -26,16 +34,24 @@ if [[ ${BASH_VERSINFO[0]} -lt 4 ]]; then
 fi
 
 SCRIPT_NAME=$(basename "$0")
-SCRIPT_VERSION="9.3.0"
+readonly SCRIPT_NAME
+SCRIPT_VERSION="9.4.0"
+readonly SCRIPT_VERSION
 
 # Globals consumed by sourced lib/util/*.sh modules; shellcheck cannot
 # see across source boundaries so SC2034 would flag them spuriously.
 # shellcheck disable=SC2034
 MARKER_DIR="/etc/pi-optimiser"
+readonly MARKER_DIR
 # shellcheck disable=SC2034
 STATE_FILE="$MARKER_DIR/state"
+# shellcheck disable=SC2034
+readonly STATE_FILE
 # Path constants consumed by lib/tasks/*.sh — all intentionally
 # referenced across source boundaries, so SC2034 is noise here.
+# NOTE: CMDLINE_FILE and CONFIG_TXT_FILE are intentionally NOT
+# readonly — detect_boot_paths() in lib/util/hardware.sh rewrites
+# them for pre-Bookworm Pi OS (legacy /boot/* vs /boot/firmware/*).
 # shellcheck disable=SC2034
 {
 LOG_FILE="/var/log/pi-optimiser.log"
@@ -44,13 +60,13 @@ SYSCTL_CONF_FILE="/etc/sysctl.d/99-pi-optimiser.conf"
 JOURNALD_CONF_FILE="/etc/systemd/journald.conf.d/99-pi-optimiser.conf"
 TAILSCALE_LIST_FILE="/etc/apt/sources.list.d/tailscale.list"
 TAILSCALE_KEY_FILE="/usr/share/keyrings/tailscale-archive-keyring.gpg"
-TMPFS_ENTRY="tmpfs /tmp tmpfs defaults,nosuid,nodev,size=200m 0 0"
+TMPFS_ENTRY="tmpfs /tmp tmpfs defaults,nosuid,nodev,nofail,size=200m 0 0"
 DOCKER_LIST_FILE="/etc/apt/sources.list.d/docker.list"
 DOCKER_KEY_FILE="/etc/apt/keyrings/docker-archive-keyring.gpg"
 CMDLINE_FILE="/boot/firmware/cmdline.txt"
 CONFIG_TXT_FILE="/boot/firmware/config.txt"
 LIGHTDM_NOBLANK_FILE="/etc/lightdm/lightdm.conf.d/99-pi-optimiser-no-blanking.conf"
-VAR_LOG_TMPFS_ENTRY="tmpfs /var/log tmpfs defaults,nosuid,nodev,mode=0755,size=50m 0 0"
+VAR_LOG_TMPFS_ENTRY="tmpfs /var/log tmpfs defaults,nosuid,nodev,nofail,mode=0755,size=50m 0 0"
 VAR_LOG_TMPFILES="/etc/tmpfiles.d/pi-optimiser-varlog.conf"
 LIMITS_CONF_FILE="/etc/security/limits.d/99-pi-optimiser.conf"
 SYSTEMD_SYSTEM_LIMITS="/etc/systemd/system.conf.d/99-pi-optimiser.conf"
@@ -63,6 +79,16 @@ ZRAM_CONF_FILE="/etc/systemd/zram-generator.conf"
 CPU_GOVERNOR_SERVICE="/etc/systemd/system/pi-optimiser-cpu-governor.service"
 EEPROM_STAGING_DIR="/etc/pi-optimiser/eeprom"
 }
+# Mark fixed paths readonly after assignment. CMDLINE_FILE and
+# CONFIG_TXT_FILE are excluded (see note above).
+# shellcheck disable=SC2034  # consumed by sourced lib/tasks/*.sh modules
+readonly LOG_FILE APT_CONF_FILE SYSCTL_CONF_FILE JOURNALD_CONF_FILE \
+  TAILSCALE_LIST_FILE TAILSCALE_KEY_FILE TMPFS_ENTRY \
+  DOCKER_LIST_FILE DOCKER_KEY_FILE LIGHTDM_NOBLANK_FILE \
+  VAR_LOG_TMPFS_ENTRY VAR_LOG_TMPFILES LIMITS_CONF_FILE \
+  SYSTEMD_SYSTEM_LIMITS SYSTEMD_USER_LIMITS CONFIG_OPTIMISER_STATE \
+  UNATTENDED_CONF_FILE UNATTENDED_SERVICE UNATTENDED_TIMER \
+  ZRAM_CONF_FILE CPU_GOVERNOR_SERVICE EEPROM_STAGING_DIR
 
 FORCE=0
 KEEP_SCREEN_BLANKING=0
@@ -137,7 +163,7 @@ PI_VALIDATE_CONFIG_PATH=""
 PI_COMPLETION_SHELL=""
 PI_SHOW_CONFIG=0
 PI_UNDO_ALL=0
-PI_REBOOT_AFTER=""
+PI_AUTO_REBOOT=0
 PI_SELF_TEST=0
 
 # P7 additions (9.2.0) — headless-hardening + Geerling/NVMe tweaks.
@@ -197,8 +223,16 @@ SYSTEM_ARCH=""
 declare -a PRECHECK_WARNINGS=()
 declare -a PRECHECK_BLOCKERS=()
 POWER_HEALTHY=1
+# Historical throttle tracker — set to 0 by preflight when vcgencmd
+# reports any 0x10000 / 0x40000 / 0x80000 bit set since boot; read by
+# oc_conservative (and future OC tasks) to decline pushing clocks on a
+# Pi that already browned out or hit thermal limits this power-cycle.
+# shellcheck disable=SC2034
+POWER_HISTORY_CLEAN=1
 # shellcheck disable=SC2034  # read by lib/util/apt.sh and many tasks
 NETWORK_AVAILABLE=1
+# shellcheck disable=SC2034  # read by lib/util/apt.sh
+APT_LOCK_BUSY=0
 
 # shellcheck disable=SC2034  # consumed by lib/util/backup.sh
 declare -A BACKED_UP=()
@@ -207,6 +241,9 @@ declare -a ONLY_TASKS=()
 declare -a SUMMARY_COMPLETED=()
 declare -a SUMMARY_SKIPPED=()
 declare -a SUMMARY_FAILED=()
+# Set to 1 only when this invocation marks reboot-required. Distinct
+# from persistent reboot state in config-optimisations.json.
+PI_RUN_REBOOT_REQUIRED=0
 
 # ---- Task registry ---------------------------------------------------
 # Each lib/tasks/<id>.sh calls pi_task_register with its metadata.
@@ -217,7 +254,7 @@ declare -a SUMMARY_FAILED=()
 declare -A PI_TASK_DESC=() PI_TASK_CATEGORY=() PI_TASK_VERSION=() \
           PI_TASK_FLAGS=() PI_TASK_POWER_SENSITIVE=() PI_TASK_DEFAULT=() \
           PI_TASK_GATE_FLAG=() PI_TASK_GATE_VAR=() PI_TASK_SKIP_VAR=() \
-          PI_TASK_REBOOT_REQUIRED=() PI_TASK_RUNNER=()
+          PI_TASK_REBOOT_REQUIRED=() PI_TASK_ALWAYS_RUN=() PI_TASK_RUNNER=()
 declare -a PI_TASK_ORDER=()
 
 TASK_SKIP_REASON=""
@@ -264,6 +301,7 @@ pi_task_register() {
       gate_var)        PI_TASK_GATE_VAR[$id]=$value ;;
       skip_var)        PI_TASK_SKIP_VAR[$id]=$value ;;
       reboot_required) PI_TASK_REBOOT_REQUIRED[$id]=$value ;;
+      always_run)      PI_TASK_ALWAYS_RUN[$id]=$value ;;
       default_enabled) PI_TASK_DEFAULT[$id]=$value ;;
       power_sensitive) PI_TASK_POWER_SENSITIVE[$id]=$value ;;
       runner)          PI_TASK_RUNNER[$id]=$value ;;
@@ -286,7 +324,13 @@ pi_load_tasks() {
     echo "pi-optimiser: missing task directory $tasks_dir" >&2
     exit 1
   fi
-  local _task_file
+  # nullglob: an empty tasks/ directory should yield zero loop
+  # iterations, not one pass on the literal "tasks/*.sh" string
+  # (which the defensive `[[ -f ... ]] || continue` below would
+  # discard anyway — but belt-and-braces is cheap here).
+  local _task_file _nullglob_was_set=0
+  shopt -q nullglob && _nullglob_was_set=1
+  shopt -s nullglob
   for _task_file in "$tasks_dir"/*.sh; do
     [[ -f "$_task_file" ]] || continue
     if ! grep -q '^[[:space:]]*pi_task_register[[:space:]]' "$_task_file"; then
@@ -296,6 +340,7 @@ pi_load_tasks() {
     # shellcheck source=/dev/null
     source "$_task_file"
   done
+  (( _nullglob_was_set == 1 )) || shopt -u nullglob
 }
 
 # Load lib/MANIFEST and populate PI_TASK_ORDER. Strict on missing task
@@ -420,7 +465,7 @@ Options:
   --show-config          Print the effective config (CLI + YAML + defaults) and exit
   --undo --all           Roll back every task completed in the most recent run
   --self-test            Run every task's preconditions read-only and report results
-  --reboot-after <mins>  Reboot the Pi <mins> minutes after a successful run
+  --reboot               Reboot immediately after a successful run (if reboot required)
   --keep-screen-blanking Keep default desktop blanking behaviour
   --watch                Re-run on config.yaml changes (requires inotify-tools)
   --no-metrics           Skip writing Prometheus textfile-collector metrics
@@ -542,7 +587,7 @@ apply_once() {
     fi
     return 0
   fi
-  if [[ $FORCE -eq 0 ]] && is_task_done "$task"; then
+  if [[ $FORCE -eq 0 && ${PI_TASK_ALWAYS_RUN[$task]:-0} != "1" ]] && is_task_done "$task"; then
     log_info "Skipping $task (already completed)"
     SUMMARY_SKIPPED+=("$task (already completed)")
     return 0
@@ -602,9 +647,18 @@ apply_once() {
       set_task_state "$task" "failed" "$desc"
       log_error "Task $task failed (rc=$rc)"
       SUMMARY_FAILED+=("$task")
+      if declare -F _backup_journal_flush >/dev/null 2>&1; then
+        _backup_journal_flush "$task"
+      fi
       return 1
       ;;
   esac
+  # Flush the per-task NDJSON backup buffer with a single Python call
+  # rather than invoking Python once per backed-up file. Even a task
+  # that writes 10 files now pays ~100ms total instead of ~1s.
+  if declare -F _backup_journal_flush >/dev/null 2>&1; then
+    _backup_journal_flush "$task"
+  fi
 }
 
 # Show current task status table, walking the registry in manifest order.
@@ -701,8 +755,8 @@ print_run_summary() {
   if ((${#PRECHECK_WARNINGS[@]} > 0)); then
     log_warn "  preflight warnings: ${PRECHECK_WARNINGS[*]}"
   fi
-  if declare -F pi_reboot_required >/dev/null 2>&1 && pi_reboot_required; then
-    log_warn "  >>> REBOOT REQUIRED: one or more tasks changed boot/firmware config <<<"
+  if [[ ${PI_RUN_REBOOT_REQUIRED:-0} -eq 1 ]]; then
+    log_warn "  >>> REBOOT REQUIRED: one or more tasks changed boot/firmware config in this run <<<"
     log_warn "      Reboot the Pi when convenient for the changes to take effect."
   fi
 }
@@ -745,12 +799,20 @@ parse_args() {
           echo "--skip requires a task name" >&2
           exit 1
         fi
+        if ! validate_task_id "$2"; then
+          echo "--skip: invalid task id '$2' (expected snake_case)" >&2
+          exit 1
+        fi
         SKIP_TASKS[$2]=1
         shift
         ;;
       --only)
         if [[ $# -lt 2 ]]; then
           echo "--only requires a task name" >&2
+          exit 1
+        fi
+        if ! validate_task_id "$2"; then
+          echo "--only: invalid task id '$2' (expected snake_case)" >&2
           exit 1
         fi
         ONLY_TASKS+=("$2")
@@ -767,6 +829,12 @@ parse_args() {
           echo "--locale requires a locale value" >&2
           exit 1
         fi
+        # Fail fast on obviously-malformed values. The run_locale task
+        # re-validates before writing to /etc/default/locale.
+        if ! validate_locale "$2"; then
+          echo "--locale: invalid value '$2' (expected ll_CC[.encoding], e.g. en_GB.UTF-8)" >&2
+          exit 1
+        fi
         REQUESTED_LOCALE=$2
         shift
         ;;
@@ -778,6 +846,20 @@ parse_args() {
           echo "--proxy-backend requires a value" >&2
           exit 1
         fi
+        # Fail-fast on malformed values. Keep CLI parsing aligned with
+        # run_proxy(), which accepts these sentinels to disable/remove
+        # proxy config.
+        local _pb_lower=${2,,}
+        case "$_pb_lower" in
+          off|false|disable|disabled|null|none)
+            ;;
+          *)
+            if ! validate_proxy_backend_url "$2"; then
+              echo "--proxy-backend: invalid URL '$2' (expected http(s)://host[:port][/path] or off/disable/disabled)" >&2
+              exit 1
+            fi
+            ;;
+        esac
         PROXY_BACKEND=$2
         shift
         ;;
@@ -821,12 +903,20 @@ parse_args() {
           echo "--timezone requires a zone name" >&2
           exit 1
         fi
+        if ! validate_timezone_name "$2"; then
+          echo "--timezone: invalid value '$2' (expected IANA zone like Europe/London)" >&2
+          exit 1
+        fi
         REQUESTED_TIMEZONE=$2
         shift
         ;;
       --hostname)
         if [[ $# -lt 2 ]]; then
           echo "--hostname requires a name" >&2
+          exit 1
+        fi
+        if ! validate_hostname "$2"; then
+          echo "--hostname: invalid value '$2' (expected RFC 1123 label, 1..63 chars)" >&2
           exit 1
         fi
         REQUESTED_HOSTNAME=$2
@@ -837,12 +927,20 @@ parse_args() {
           echo "--ssh-import-github requires a GitHub username" >&2
           exit 1
         fi
+        if ! validate_github_handle "$2"; then
+          echo "--ssh-import-github: invalid GitHub handle '$2'" >&2
+          exit 1
+        fi
         SSH_IMPORT_GITHUB=$2
         shift
         ;;
       --ssh-import-url)
         if [[ $# -lt 2 ]]; then
           echo "--ssh-import-url requires a URL" >&2
+          exit 1
+        fi
+        if ! validate_https_url "$2"; then
+          echo "--ssh-import-url: URL must begin with https://" >&2
           exit 1
         fi
         SSH_IMPORT_URL=$2
@@ -904,11 +1002,7 @@ parse_args() {
         ;;
       --show-config)         PI_SHOW_CONFIG=1 ;;
       --self-test)           PI_SELF_TEST=1 ;;
-      --reboot-after)
-        if [[ $# -lt 2 ]]; then echo "--reboot-after requires a minute count" >&2; exit 1; fi
-        if ! [[ $2 =~ ^[0-9]+$ ]]; then echo "--reboot-after expects an integer (minutes)" >&2; exit 1; fi
-        PI_REBOOT_AFTER=$2; shift
-        ;;
+      --reboot)              PI_AUTO_REBOOT=1 ;;
       --report)               PI_REPORT=1 ;;
       --snapshot)             PI_SNAPSHOT_ONLY=1 ;;
       --restore)
@@ -939,14 +1033,28 @@ parse_args() {
         ;;
       --temp-limit)
         if [[ $# -lt 2 ]]; then echo "--temp-limit requires a value" >&2; exit 1; fi
+        # TEMP_LIMIT is interpolated into a `temp_limit=$TEMP_LIMIT`
+        # entry in /boot/firmware/config.txt. An embedded newline would
+        # inject a second firmware directive (e.g. disable_eeprom).
+        # Accept only a small integer range the firmware actually honours.
+        if ! [[ $2 =~ ^[0-9]{1,3}$ ]] || (( $2 < 40 || $2 > 85 )); then
+          echo "--temp-limit expects an integer in 40..85 (degrees C)" >&2; exit 1
+        fi
         TEMP_LIMIT=$2; THERMAL_THRESHOLDS_SET=1; shift
         ;;
       --temp-soft-limit)
         if [[ $# -lt 2 ]]; then echo "--temp-soft-limit requires a value" >&2; exit 1; fi
+        if ! [[ $2 =~ ^[0-9]{1,3}$ ]] || (( $2 < 40 || $2 > 85 )); then
+          echo "--temp-soft-limit expects an integer in 40..85 (degrees C)" >&2; exit 1
+        fi
         TEMP_SOFT_LIMIT=$2; THERMAL_THRESHOLDS_SET=1; shift
         ;;
       --initial-turbo)
         if [[ $# -lt 2 ]]; then echo "--initial-turbo requires a value" >&2; exit 1; fi
+        # initial_turbo is documented as 0..60 seconds in the Pi firmware.
+        if ! [[ $2 =~ ^[0-9]{1,3}$ ]] || (( $2 > 60 )); then
+          echo "--initial-turbo expects an integer in 0..60 (seconds)" >&2; exit 1
+        fi
         INITIAL_TURBO=$2; THERMAL_THRESHOLDS_SET=1; shift
         ;;
       --keep-screen-blanking)
@@ -1130,6 +1238,34 @@ is_power_sensitive_task() {
 
 # Ensure /tmp lives on tmpfs to reduce SD card writes.
 
+# Consolidated EXIT handler used by main's trap. Cleans up scratch
+# state that pi_diff_flush / feature end-of-run paths would normally
+# clear, but which leak if the process is killed mid-run (Ctrl-C,
+# SIGTERM). Called unconditionally; each branch no-ops when its state
+# wasn't set, so re-running the handler is safe.
+_pi_main_cleanup() {
+  local _rc=$?
+  if [[ -n "${PI_CONFIG_PREVIEW_DIR:-}" && -d "${PI_CONFIG_PREVIEW_DIR}" ]]; then
+    rm -rf "${PI_CONFIG_PREVIEW_DIR}" 2>/dev/null || true
+  fi
+  # Flush any pending backup-journal NDJSON buffers so Ctrl-C mid-run
+  # still writes out the task journals (otherwise --undo would think
+  # the interrupted task modified nothing).
+  if declare -F _backup_journal_flush_all >/dev/null 2>&1; then
+    _backup_journal_flush_all
+  fi
+  return $_rc
+}
+
+# Exit helper for explicit main-path returns. We disable ERR so expected
+# non-zero feature codes (for example `--check-update` returning 10 for
+# "update available") don't get misreported as startup failures.
+_pi_main_exit() {
+  local _rc=${1:-0}
+  trap - ERR
+  exit "$_rc"
+}
+
 # Entry point orchestrating argument parsing and task execution.
 main() {
   # Tag every backup emitted by this run with a single stamp so --undo
@@ -1239,6 +1375,31 @@ main() {
     done
   fi
 
+  # --only / --skip ids pass the snake_case regex at parse time but we
+  # can only confirm they're real task ids once the registry is loaded.
+  # Without this check, `--only bogus_task` would leave the main loop
+  # with an unmatched filter: every real task skipped as "filtered",
+  # SUMMARY_FAILED stays empty, and the run exits 0 — effectively a
+  # silent no-op. Fail loud instead.
+  if (( ${#ONLY_TASKS[@]} > 0 )); then
+    local _oid
+    for _oid in "${ONLY_TASKS[@]}"; do
+      if [[ -z "${PI_TASK_DESC[$_oid]:-}" ]]; then
+        echo "pi-optimiser: --only '$_oid' is not a registered task id (see --list-tasks)" >&2
+        exit 1
+      fi
+    done
+  fi
+  if (( ${#SKIP_TASKS[@]} > 0 )); then
+    local _sid
+    for _sid in "${!SKIP_TASKS[@]}"; do
+      if [[ -z "${PI_TASK_DESC[$_sid]:-}" ]]; then
+        echo "pi-optimiser: --skip '$_sid' is not a registered task id (see --list-tasks)" >&2
+        exit 1
+      fi
+    done
+  fi
+
   if [[ $LIST_TASKS -eq 1 ]]; then
     list_tasks
     exit 0
@@ -1284,13 +1445,23 @@ main() {
   require_root
   init_logging
 
-  # Serialize concurrent runs (human + update-timer race) under a
-  # flock. Two mutating invocations would otherwise race on state.json
-  # and the backup journal. --status, --report, --list-tasks,
-  # --check-update are read-only paths; those are checked later and
-  # exit without acquiring the lock. We acquire as early as possible
-  # once we're committed to any side-effecting action.
-  if command -v flock >/dev/null 2>&1; then
+  # Read-only commands (--status, --report, --check-update) return a
+  # snapshot of state.json and must not block on the exclusive lock
+  # held by a concurrent mutating run. Detect them here and skip the
+  # flock for those paths; they're still read-only at the filesystem
+  # level because set_task_state / write_json_field are only called
+  # from the mutating task loop below.
+  local _pi_read_only=0
+  if [[ $STATUS_ONLY -eq 1 || $PI_REPORT -eq 1 || $PI_DO_CHECK_UPDATE -eq 1 ]]; then
+    _pi_read_only=1
+  fi
+
+  # Serialize concurrent mutating runs (human + update-timer race)
+  # under a flock. Two mutating invocations would otherwise race on
+  # state.json and the backup journal. Held for the rest of the
+  # process lifetime; the kernel releases it on process exit so a
+  # crash never leaves a stale lock file.
+  if [[ $_pi_read_only -eq 0 ]] && command -v flock >/dev/null 2>&1; then
     # shellcheck disable=SC2094  # fd 9 is our lock fd
     exec 9>/var/lock/pi-optimiser.lock
     if ! flock -n 9; then
@@ -1301,6 +1472,11 @@ main() {
   fi
 
   trap 'on_err $? $LINENO' ERR
+  # Cleanup scratch state on any exit path (incl. Ctrl-C: EXIT fires on
+  # SIGINT/TERM/HUP under `set -e`). PI_CONFIG_PREVIEW_DIR is normally
+  # cleaned by pi_diff_flush at end-of-run; a signal mid-run would
+  # otherwise leave /tmp/pi-optimiser-diff.XXXXXX behind.
+  trap '_pi_main_cleanup' EXIT
   ensure_marker_store
   load_os_release
   gather_system_info
@@ -1308,11 +1484,11 @@ main() {
   preflight_checks
   if [[ $STATUS_ONLY -eq 1 ]]; then
     print_status
-    exit 0
+    _pi_main_exit 0
   fi
   if [[ $PI_REPORT -eq 1 ]]; then
     pi_generate_report
-    exit 0
+    _pi_main_exit 0
   fi
   # `set -e` + ERR trap would log a misleading "Failure at line …" for
   # a feature that legitimately returns non-zero (e.g. --undo against
@@ -1321,59 +1497,59 @@ main() {
   local _rc=0
   if [[ $PI_SNAPSHOT_ONLY -eq 1 ]]; then
     pi_take_snapshot || _rc=$?
-    exit $_rc
+    _pi_main_exit "$_rc"
   fi
   if [[ -n "$PI_RESTORE_PATH" ]]; then
     pi_restore_snapshot "$PI_RESTORE_PATH" || _rc=$?
-    exit $_rc
+    _pi_main_exit "$_rc"
   fi
   if [[ -n "$PI_UNDO_TASK" ]]; then
     pi_undo_task "$PI_UNDO_TASK" || _rc=$?
-    exit $_rc
+    _pi_main_exit "$_rc"
   fi
   if [[ $PI_UNDO_ALL -eq 1 ]]; then
     if declare -F pi_undo_all >/dev/null 2>&1; then
       pi_undo_all || _rc=$?
-      exit $_rc
+      _pi_main_exit "$_rc"
     fi
     echo "pi-optimiser: lib/features/undo.sh missing pi_undo_all" >&2
-    exit 1
+    _pi_main_exit 1
   fi
   if [[ $PI_UNINSTALL -eq 1 ]]; then
     pi_uninstall || _rc=$?
-    exit $_rc
+    _pi_main_exit "$_rc"
   fi
   if [[ $PI_MIGRATE_INSTALL -eq 1 ]]; then
     pi_migrate_install || _rc=$?
-    exit $_rc
+    _pi_main_exit "$_rc"
   fi
   if [[ $PI_ROLLBACK -eq 1 ]]; then
     pi_rollback_release || _rc=$?
-    exit $_rc
+    _pi_main_exit "$_rc"
   fi
   if [[ $PI_UPDATE_TIMER_ENABLE -eq 1 ]]; then
     pi_enable_update_timer || _rc=$?
-    exit $_rc
+    _pi_main_exit "$_rc"
   fi
   if [[ $PI_UPDATE_TIMER_DISABLE -eq 1 ]]; then
     pi_disable_update_timer || _rc=$?
-    exit $_rc
+    _pi_main_exit "$_rc"
   fi
   if [[ $PI_DO_CHECK_UPDATE -eq 1 ]]; then
     pi_check_update || _rc=$?
-    exit $_rc
+    _pi_main_exit "$_rc"
   fi
   if [[ $PI_DO_UPDATE -eq 1 ]]; then
     pi_self_update || _rc=$?
-    exit $_rc
+    _pi_main_exit "$_rc"
   fi
   if [[ $PI_SELF_TEST -eq 1 ]]; then
     if declare -F pi_self_test >/dev/null 2>&1; then
       pi_self_test || _rc=$?
-      exit $_rc
+      _pi_main_exit "$_rc"
     fi
     echo "pi-optimiser: lib/features/profiles.sh missing pi_self_test" >&2
-    exit 1
+    _pi_main_exit 1
   fi
 
   # Launch the TUI when appropriate. It populates PI_TUI_SELECTED and
@@ -1382,7 +1558,7 @@ main() {
     if declare -F pi_tui_main >/dev/null 2>&1; then
       if ! pi_tui_main; then
         log_info "TUI exited without applying; nothing to do"
-        exit 0
+        _pi_main_exit 0
       fi
     fi
   fi
@@ -1433,6 +1609,12 @@ main() {
     # Capture the rc, keep going, and surface the failure at the end.
     apply_once "$task" || true
   done
+  # Flush any deferred systemd daemon-reload from tasks that wrote units
+  # but didn't need to enable them immediately (e.g. watchdog). No-op
+  # when no task marked it pending; avoids paying ~100ms per task.
+  if declare -F pi_daemon_reload_if_needed >/dev/null 2>&1; then
+    pi_daemon_reload_if_needed
+  fi
   print_run_summary
   if [[ $PI_DIFF_MODE -eq 1 ]] && declare -F pi_diff_flush >/dev/null 2>&1; then
     pi_diff_flush
@@ -1442,17 +1624,17 @@ main() {
   fi
   log_info "Optimisation run complete"
 
-  # Optional post-run auto-reboot (--reboot-after <mins>). Only when
-  # the run completed with no failures and a reboot is actually needed
-  # — there's no point rebooting for a run of `--only cpu_governor`.
-  if [[ -n "$PI_REBOOT_AFTER" && ${#SUMMARY_FAILED[@]} -eq 0 ]]; then
-    if declare -F pi_reboot_required >/dev/null 2>&1 && pi_reboot_required; then
-      log_warn "--reboot-after: scheduling reboot in $PI_REBOOT_AFTER minute(s)"
-      if ! shutdown -r "+$PI_REBOOT_AFTER" "pi-optimiser --reboot-after $PI_REBOOT_AFTER" >/dev/null 2>&1; then
-        log_warn "shutdown(1) failed; not rebooting"
+  # Optional post-run auto-reboot (--reboot). Only when the run completed
+  # with no failures and a reboot is actually needed. Always uses
+  # shutdown -r (restart) — remote Pis need to come back on their own.
+  if [[ $PI_AUTO_REBOOT -eq 1 && ${#SUMMARY_FAILED[@]} -eq 0 ]]; then
+    if [[ ${PI_RUN_REBOOT_REQUIRED:-0} -eq 1 ]]; then
+      log_warn "--reboot: rebooting now"
+      if ! shutdown -r now "pi-optimiser --reboot" >/dev/null 2>&1; then
+        log_warn "shutdown -r now failed; reboot manually"
       fi
     else
-      log_info "--reboot-after set but no task flagged reboot-required; skipping"
+      log_info "--reboot set but no task in this run flagged reboot-required; skipping"
     fi
   fi
 

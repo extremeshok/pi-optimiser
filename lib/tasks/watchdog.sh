@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: watchdog
-# version: 1.1.0
+# version: 1.2.0
 # description: Auto-reboot the Pi if the kernel hangs (hardware watchdog)
 # category: hardware-clocks
 # default_enabled: 0
@@ -13,7 +13,7 @@
 pi_task_register watchdog \
   description="Auto-reboot the Pi if the kernel hangs (hardware watchdog)" \
   category=hardware-clocks \
-  version=1.1.0 \
+  version=1.2.0 \
   default_enabled=0 \
   power_sensitive=1 \
   flags="--enable-watchdog" \
@@ -41,13 +41,19 @@ run_watchdog() {
   fi
 
   local watchdog_dir=/etc/systemd/system.conf.d
+  local watchdog_conf="$watchdog_dir/99-pi-optimiser-watchdog.conf"
   mkdir -p "$watchdog_dir"
-  cat <<'CFG' > "$watchdog_dir/99-pi-optimiser-watchdog.conf"
+  record_created "$watchdog_conf"
+  # Atomic write so a half-written drop-in can't leave systemd's main
+  # config in an unparseable state.
+  _pi_atomic_write "$watchdog_conf" <<'CFG'
 [Manager]
 RuntimeWatchdogSec=15
 ShutdownWatchdogSec=10min
 CFG
-  systemctl daemon-reload >/dev/null 2>&1 || true
+  # No immediate start — settings only apply after reboot, so batch
+  # the reload with any other unit changes at end of run.
+  pi_mark_daemon_reload_needed
   log_info "Configured systemd RuntimeWatchdogSec=15; active after reboot"
   write_json_field "$CONFIG_OPTIMISER_STATE" "watchdog.enabled" "true"
 }

@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: journald
-# version: 1.1.0
+# version: 1.1.1
 # description: Keep systemd journal in RAM to reduce disk writes
 # category: storage
 # default_enabled: 1
@@ -10,11 +10,12 @@
 pi_task_register journald \
   description="Keep systemd journal in RAM to reduce disk writes" \
   category=storage \
-  version=1.1.0 \
+  version=1.1.1 \
   default_enabled=1
 
 run_journald() {
   mkdir -p "$(dirname "$JOURNALD_CONF_FILE")"
+  record_created "$JOURNALD_CONF_FILE"
   cat <<'CFG' > "$JOURNALD_CONF_FILE"
 [Journal]
 Storage=volatile

@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # Keep third-party GitHub Actions pinned to the latest commit SHA.
+  # Dependabot opens a PR when a pinned action has a new release — the
+  # PR updates both the SHA and the trailing `# vX.Y.Z` comment. Review
+  # action changelogs before merging; do not auto-merge.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+      include: scope
+    labels:
+      - "dependencies"
+      - "github-actions"

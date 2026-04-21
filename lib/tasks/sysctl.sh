@@ -14,7 +14,10 @@ pi_task_register sysctl \
   default_enabled=1
 
 run_sysctl() {
-  cat <<'CFG' > "$SYSCTL_CONF_FILE"
+  record_created "$SYSCTL_CONF_FILE"
+  # Atomic write — a truncated sysctl fragment is rejected by sysctl(8)
+  # on the next boot and its values never apply.
+  _pi_atomic_write "$SYSCTL_CONF_FILE" <<'CFG'
 vm.swappiness = 10
 vm.vfs_cache_pressure = 50
 vm.dirty_writeback_centisecs = 6000
@@ -37,7 +40,15 @@ net.ipv4.conf.default.send_redirects = 0
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 CFG
-  sysctl -p "$SYSCTL_CONF_FILE" >/dev/null 2>&1 || log_warn "sysctl reload encountered an issue"
+  # Capture stderr from sysctl -p so rejected keys are surfaced per line
+  # instead of being swallowed with a vague "encountered an issue".
+  local sysctl_err
+  sysctl_err=$(sysctl -p "$SYSCTL_CONF_FILE" 2>&1 >/dev/null) || true
+  if [[ -n "$sysctl_err" ]]; then
+    while IFS= read -r _sysctl_line; do
+      [[ -n "$_sysctl_line" ]] && log_warn "sysctl: $_sysctl_line"
+    done <<<"$sysctl_err"
+  fi
   # Verify BBR actually loaded — if the kernel lacks tcp_bbr, the
   # control value falls back to whatever was set before. Surface that
   # so operators on very old kernels know their BBR line is decorative.

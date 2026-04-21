@@ -193,6 +193,11 @@ _pi_tui_category() {
       # reflected and can confirm-or-change without re-selecting from
       # scratch. Applies whether or not the task has already run.
       on=ON
+    elif [[ $already_done -eq 1 ]]; then
+      # Keep previously-completed tasks pre-ticked across TUI sessions
+      # so a follow-up run starts from the operator's current state
+      # instead of looking like everything reset to defaults.
+      on=ON
     elif [[ ${PI_TASK_DEFAULT[$tid]:-1} == "1" && $already_done -eq 0 ]]; then
       on=ON
     else
@@ -234,6 +239,13 @@ _pi_tui_form_timezone() {
     --inputbox "IANA zone (e.g. Europe/London):" 10 60 "$default" \
     3>&1 1>&2 2>&3) || return 0
   if [[ -n "$tz" ]]; then
+    # Reject shell metacharacters / path traversal BEFORE the file test
+    # so a crafted entry like "../etc/passwd" can't sneak past. Mirrors
+    # the --timezone CLI path in pi-optimiser.sh.
+    if ! validate_timezone_name "$tz"; then
+      _whiptail --title "Timezone" --msgbox "Invalid zone name: $tz (expected IANA zone like Europe/London)" 8 60
+      return 0
+    fi
     if [[ -f "/usr/share/zoneinfo/$tz" ]]; then
       REQUESTED_TIMEZONE=$tz
     else
@@ -259,10 +271,27 @@ _pi_tui_form_hostname() {
 
 _pi_tui_form_proxy() {
   local default=${PROXY_BACKEND:-}
-  local url
+  local url url_lower
   url=$(_whiptail --title "NGINX reverse proxy" \
-    --inputbox "Backend URL, or 'disabled' to tear it down:" 10 60 "$default" \
+    --inputbox "Backend URL, or off/disable/disabled to tear it down:" 10 60 "$default" \
     3>&1 1>&2 2>&3) || return 0
+  # Empty clears the setting; the disable sentinels match CLI/runtime
+  # handling in parse_args()/run_proxy(). Any other value must survive
+  # the same injection-safe validator used before writing nginx config.
+  url_lower=${url,,}
+  if [[ -n "$url" ]]; then
+    case "$url_lower" in
+      off|false|disable|disabled|null|none)
+        ;;
+      *)
+        if ! validate_proxy_backend_url "$url"; then
+          _whiptail --title "NGINX reverse proxy" --msgbox \
+            "Invalid backend URL: $url\n\nExpected http(s)://host[:port][/path] or off/disable/disabled." 10 60
+          return 0
+        fi
+        ;;
+    esac
+  fi
   PROXY_BACKEND=$url
 }
 
@@ -288,6 +317,14 @@ _pi_tui_form_locale() {
       --inputbox "Locale code (e.g. en_ZA.UTF-8):" 10 60 "$default" \
       3>&1 1>&2 2>&3) || return 0
   fi
+  # Apply the same validator the --locale CLI path uses. /etc/default/locale
+  # is shell-sourced by /etc/profile, so an unvalidated value written here
+  # would be a code-exec vector on next login.
+  if [[ -n "$loc" ]] && ! validate_locale "$loc"; then
+    _whiptail --title "System locale" --msgbox \
+      "Invalid locale: $loc\n\nExpected ll_CC[.encoding][@modifier], e.g. en_GB.UTF-8." 10 60
+    return 0
+  fi
   REQUESTED_LOCALE=$loc
 }
 
@@ -304,13 +341,20 @@ _pi_tui_form_ssh_import() {
       local name
       name=$(_whiptail --inputbox "GitHub username:" 10 60 \
         "${SSH_IMPORT_GITHUB:-}" 3>&1 1>&2 2>&3) || return 0
+      # Match --ssh-import-github CLI validation so a crafted handle
+      # can't reach curl unescaped.
+      if [[ -n "$name" ]] && ! validate_github_handle "$name"; then
+        _whiptail --title "SSH key import" --msgbox \
+          "Invalid GitHub handle: $name\n\n1..39 chars, alphanumerics and single hyphens, no leading/trailing hyphen." 10 60
+        return 0
+      fi
       SSH_IMPORT_GITHUB=$name
       ;;
     url)
       local url
       url=$(_whiptail --inputbox "https:// URL to authorized_keys:" 10 60 \
         "${SSH_IMPORT_URL:-}" 3>&1 1>&2 2>&3) || return 0
-      if [[ -n "$url" && "$url" != https://* ]]; then
+      if [[ -n "$url" ]] && ! validate_https_url "$url"; then
         _whiptail --msgbox "URL must begin with https://" 8 50
         return 0
       fi
@@ -403,10 +447,44 @@ _pi_tui_apply() {
   return 0
 }
 
+# Render `print_status` output into a scrollable textbox. Wrapped in its
+# own function so the RETURN trap fires when this function returns (not
+# only when pi_tui_main returns), guaranteeing the tempfile is cleaned
+# even on whiptail error. A matching EXIT trap catches Ctrl+C while the
+# textbox is up.
+_pi_tui_show_status() {
+  local tmp
+  tmp=$(mktemp -t pi-optimiser-tui.XXXXXX) || return 0
+  # shellcheck disable=SC2064
+  trap "rm -f -- '$tmp'" RETURN
+  # shellcheck disable=SC2064
+  trap "rm -f -- '$tmp'; trap - EXIT; exit 130" INT
+  print_status > "$tmp" 2>&1
+  _whiptail --title "Status" --textbox "$tmp" $PI_WHIP_HEIGHT $PI_WHIP_WIDTH || true
+  trap - INT
+}
+
+# Render `pi_check_update` into a textbox and, on confirm, stream
+# `pi_self_update` into a programbox. Same trap discipline as above.
+_pi_tui_show_update() {
+  local tmp
+  tmp=$(mktemp -t pi-optimiser-tui.XXXXXX) || return 0
+  # shellcheck disable=SC2064
+  trap "rm -f -- '$tmp'" RETURN
+  # shellcheck disable=SC2064
+  trap "rm -f -- '$tmp'; trap - EXIT; exit 130" INT
+  pi_check_update > "$tmp" 2>&1 || true
+  _whiptail --title "Check for updates" --textbox "$tmp" 18 78 || true
+  trap - INT
+  if _whiptail --yesno "Run --update now?" 8 40; then
+    pi_self_update 2>&1 | tail -40 | _whiptail --title "Update result" --programbox 20 78
+  fi
+}
+
 pi_tui_main() {
   # Sanity-check environment up front.
   if ! pi_tui_available; then
-    echo "pi-optimiser: whiptail not installed; cannot launch TUI." >&2
+    echo "pi-optimiser: whiptail unavailable or terminal unsupported; cannot launch TUI." >&2
     return 1
   fi
   pi_tui_resize
@@ -447,28 +525,13 @@ pi_tui_main() {
       services)  _pi_tui_category integrations     "Extra services" ;;
       firmware)  _pi_tui_category firmware-eeprom  "Firmware & EEPROM" ;;
       values)    _pi_tui_forms_menu ;;
-      status)
-        local tmp
-        tmp=$(mktemp)
-        print_status > "$tmp" 2>&1
-        _whiptail --title "Status" --textbox "$tmp" $PI_WHIP_HEIGHT $PI_WHIP_WIDTH
-        rm -f "$tmp"
-        ;;
+      status)   _pi_tui_show_status ;;
       apply)
         if _pi_tui_apply && [[ ${PI_TUI_READY_TO_RUN:-0} -eq 1 ]]; then
           return 0
         fi
         ;;
-      update)
-        local tmp
-        tmp=$(mktemp)
-        pi_check_update > "$tmp" 2>&1 || true
-        _whiptail --title "Check for updates" --textbox "$tmp" 18 78
-        rm -f "$tmp"
-        if _whiptail --yesno "Run --update now?" 8 40; then
-          pi_self_update 2>&1 | tail -40 | _whiptail --title "Update result" --programbox 20 78
-        fi
-        ;;
+      update)   _pi_tui_show_update ;;
       exit|"") return 1 ;;
     esac
   done

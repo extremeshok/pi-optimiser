@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
 # Stub rpi-update — no-op; prints a reassuring line and exits 0.
+# Also records the invocation so tests can assert `firmware_update`
+# actually called it (previously: trivially passed even if the task
+# never reached the binary).
+log=${PI_OPTIMISER_STUB_LOG:-/tmp/pi-optimiser-stub.log}
+printf 'rpi-update %s\n' "$*" >> "$log" 2>/dev/null || true
+
 printf 'rpi-update: stub (no firmware actually fetched)\n' >&2
 exit 0

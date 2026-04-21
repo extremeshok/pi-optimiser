@@ -42,11 +42,22 @@ run_var_log_tmpfs() {
     log_info "/var/log already configured in fstab"
   else
     backup_file /etc/fstab
-    echo "$VAR_LOG_TMPFS_ENTRY" >> /etc/fstab
-    log_info "Added tmpfs entry for /var/log"
+    # fstab_append_line atomically stages to .tmp + rename so an
+    # interrupted edit can't leave /etc/fstab truncated, and it
+    # validates 6-field layout + dedupes by mountpoint.
+    local fstab_rc=0
+    fstab_append_line "$VAR_LOG_TMPFS_ENTRY" || fstab_rc=$?
+    case $fstab_rc in
+      0) log_info "Added tmpfs entry for /var/log" ;;
+      1) log_info "/var/log entry already present in fstab" ;;
+      *) log_warn "Refusing to append malformed fstab entry for /var/log"; return 1 ;;
+    esac
   fi
 
-  cat <<'CFG' > "$VAR_LOG_TMPFILES"
+  [[ -f "$VAR_LOG_TMPFILES" ]] && backup_file "$VAR_LOG_TMPFILES"
+  # Atomic stage — /etc/tmpfiles.d/* is parsed at boot, so a half-
+  # written config could prevent /var/log from being created.
+  _pi_atomic_write "$VAR_LOG_TMPFILES" <<'CFG'
 d /var/log 0755 root root -
 d /var/log/apt 0755 root root -
 d /var/log/lightdm 0755 root root -

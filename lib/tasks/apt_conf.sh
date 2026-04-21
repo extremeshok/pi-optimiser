@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: apt_conf
-# version: 1.1.0
+# version: 1.1.1
 # description: Trim apt cache growth and quiet the background package updater
 # category: system
 # default_enabled: 1
@@ -10,10 +10,11 @@
 pi_task_register apt_conf \
   description="Trim apt cache growth and quiet the background package updater" \
   category=system \
-  version=1.1.0 \
+  version=1.1.1 \
   default_enabled=1
 
 run_apt_conf() {
+  record_created "$APT_CONF_FILE"
   cat <<'CFG' > "$APT_CONF_FILE"
 APT::Install-Recommends "0";
 APT::Install-Suggests "0";

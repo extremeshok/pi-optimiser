@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: wifi_bt_power
-# version: 1.0.0
+# version: 1.1.0
 # description: Keep Wi-Fi awake; optionally disable Bluetooth
 # category: network
 # default_enabled: 0
@@ -11,7 +11,7 @@
 pi_task_register wifi_bt_power \
   description="Keep Wi-Fi awake; optionally disable Bluetooth" \
   category=network \
-  version=1.0.0 \
+  version=1.1.0 \
   default_enabled=0 \
   flags="--wifi-powersave-off,--disable-bluetooth" \
   gate_var=WIFI_POWERSAVE_OFF
@@ -21,7 +21,9 @@ run_wifi_bt_power() {
 
   if [[ ${WIFI_POWERSAVE_OFF:-0} -eq 1 ]]; then
     mkdir -p /etc/systemd/system
-    cat <<'CFG' > /etc/systemd/system/pi-optimiser-wifi-powersave-off.service
+    local wifi_unit=/etc/systemd/system/pi-optimiser-wifi-powersave-off.service
+    record_created "$wifi_unit"
+    cat <<'CFG' > "$wifi_unit"
 [Unit]
 Description=Disable Wi-Fi power save (pi-optimiser)
 After=network.target
@@ -34,6 +36,9 @@ ExecStart=/bin/sh -c 'for d in /sys/class/net/wlan*; do iface=$(basename "$d"); 
 [Install]
 WantedBy=multi-user.target
 CFG
+    # Pin the unit to 0644 so a loose operator umask can't leave it
+    # group/world-writable — the unit runs as root on every boot.
+    chmod 0644 "$wifi_unit" 2>/dev/null || true
     systemctl daemon-reload >/dev/null 2>&1 || true
     systemctl enable --now pi-optimiser-wifi-powersave-off.service >/dev/null 2>&1 || log_warn "Unable to enable wifi-powersave-off unit"
     log_info "Wi-Fi power save disabled (service enabled)"

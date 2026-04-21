@@ -23,6 +23,14 @@ run_docker() {
     pi_skip_reason "not requested"
     return 2
   fi
+  # Fail fast offline: the install pulls a GPG key and apt index over
+  # HTTPS. Letting it run would burn the flock and fail halfway through
+  # with a mangled repo list on disk.
+  if [[ ${NETWORK_AVAILABLE:-1} -eq 0 ]]; then
+    log_warn "Network unavailable; cannot download Docker signing key/packages"
+    pi_skip_reason "network unavailable"
+    return 2
+  fi
   load_os_release
   local arch repo_id repo_configured=0
   arch=$(dpkg --print-architecture)
@@ -37,8 +45,23 @@ run_docker() {
 
   ensure_packages ca-certificates curl gnupg
   install -m 0755 -d /etc/apt/keyrings
+  # Secure curl defaults for third-party downloads: pin to HTTPS with
+  # bounded redirects, explicit timeouts so hung mirrors don't block the
+  # installer, and retry-with-backoff on transient failures.
+  local -a _curl_secure=(
+    --fail --silent --show-error --location
+    --proto '=https' --proto-redir '=https'
+    --max-redirs 5
+    --connect-timeout 15 --max-time 120
+    --tlsv1.2
+    --retry 3 --retry-delay 2 --retry-connrefused
+  )
   if [[ ! -f "$DOCKER_KEY_FILE" ]]; then
-    if curl -fsSL "https://download.docker.com/linux/${repo_id}/gpg" | gpg --dearmor > "$DOCKER_KEY_FILE"; then
+    # Register the keyfile as "created" BEFORE the download so --undo
+    # cleans it up even if a partial run dies between download and
+    # repo-list write.
+    record_created "$DOCKER_KEY_FILE"
+    if curl "${_curl_secure[@]}" "https://download.docker.com/linux/${repo_id}/gpg" | gpg --dearmor > "$DOCKER_KEY_FILE"; then
       chmod a+r "$DOCKER_KEY_FILE"
       repo_configured=1
     else
@@ -51,12 +74,16 @@ run_docker() {
 
   if [[ $repo_configured -eq 1 ]]; then
     local docker_suite=$OS_CODENAME
-    if ! curl -fsI "https://download.docker.com/linux/${repo_id}/dists/${docker_suite}/Release" >/dev/null 2>&1; then
+    if ! curl --fail --silent --show-error --location \
+           --proto '=https' --proto-redir '=https' --max-redirs 5 \
+           --connect-timeout 10 --max-time 30 --tlsv1.2 \
+           -I "https://download.docker.com/linux/${repo_id}/dists/${docker_suite}/Release" >/dev/null 2>&1; then
       if [[ $docker_suite != "bookworm" ]]; then
         log_warn "Docker repo for $docker_suite unavailable; falling back to bookworm"
         docker_suite=bookworm
       fi
     fi
+    record_created "$DOCKER_LIST_FILE"
     cat <<EOF > "$DOCKER_LIST_FILE"
 deb [arch=$arch signed-by=$DOCKER_KEY_FILE] https://download.docker.com/linux/${repo_id} $docker_suite stable
 EOF
@@ -98,7 +125,10 @@ EOF
   if [[ ${DOCKER_BUILDX_MULTIARCH:-0} -eq 1 ]]; then
     ensure_packages qemu-user-static binfmt-support
     if command -v docker >/dev/null 2>&1; then
-      docker run --rm --privileged tonistiigi/binfmt --install all >/dev/null 2>&1 \
+      # Pin to a specific binfmt image tag rather than :latest so a
+      # hijacked upstream tag can't silently swap a privileged container.
+      # Bump this deliberately after reviewing upstream release notes.
+      docker run --rm --privileged tonistiigi/binfmt:qemu-v8.1.5 --install all >/dev/null 2>&1 \
         || log_warn "Unable to seed binfmt handlers via tonistiigi/binfmt"
     fi
     log_info "docker: qemu-user-static + binfmt installed for multi-arch buildx"

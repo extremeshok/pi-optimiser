@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: locale
-# version: 1.1.0
+# version: 1.2.0
 # description: Set the default system locale
 # category: system
 # default_enabled: 0
@@ -12,7 +12,7 @@
 pi_task_register locale \
   description="Set the default system locale" \
   category=system \
-  version=1.1.0 \
+  version=1.2.0 \
   default_enabled=0 \
   flags="--locale" \
   gate_var=REQUESTED_LOCALE
@@ -23,10 +23,20 @@ run_locale() {
     pi_skip_reason "not requested"
     return 2
   fi
-  ensure_packages locales-all
-  if [[ -f /etc/default/locale ]]; then
-    backup_file /etc/default/locale
+  # REQUESTED_LOCALE flows from CLI/config into /etc/default/locale,
+  # which is sourced by /etc/profile on every login. Reject anything
+  # that isn't a plain POSIX locale so a value like
+  #   en_GB.UTF-8\nLD_PRELOAD=/tmp/evil.so
+  # can't inject additional shell assignments into a file every
+  # user's login shell evaluates.
+  if ! validate_locale "$REQUESTED_LOCALE"; then
+    log_error "Invalid locale '$REQUESTED_LOCALE' (expected ll_CC[.encoding][@modifier])"
+    return 1
   fi
+  ensure_packages locales-all
+  # /etc/default/locale almost always exists, but handle the rare
+  # case where it doesn't so --undo still does the right thing.
+  record_created /etc/default/locale
   cat <<EOF > /etc/default/locale
 LANG=$REQUESTED_LOCALE
 LC_ALL=$REQUESTED_LOCALE

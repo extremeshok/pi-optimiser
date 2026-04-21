@@ -37,11 +37,24 @@ run_chrony() {
   # apt usually masks timesyncd when chrony is installed, but be
   # defensive — two time sync daemons fighting over /etc/adjtime is a
   # classic misconfiguration.
-  if systemctl list-unit-files systemd-timesyncd.service >/dev/null 2>&1; then
+  if unit_exists systemd-timesyncd.service; then
     systemctl disable --now systemd-timesyncd.service >/dev/null 2>&1 || true
   fi
-  systemctl enable --now chrony.service >/dev/null 2>&1 \
-    || systemctl enable --now chronyd.service >/dev/null 2>&1 || true
+  # Debian ships the unit as chrony.service; some distros name it
+  # chronyd.service. Pick whichever exists to avoid a spurious
+  # "Failed to enable unit: Unit not found" in the journal.
+  local chrony_unit=""
+  if unit_exists chrony.service; then
+    chrony_unit=chrony.service
+  elif unit_exists chronyd.service; then
+    chrony_unit=chronyd.service
+  fi
+  if [[ -n $chrony_unit ]]; then
+    systemctl enable --now "$chrony_unit" >/dev/null 2>&1 \
+      || log_warn "Unable to enable $chrony_unit"
+  else
+    log_warn "chrony unit not found after install; manual enable required"
+  fi
   log_info "chrony enabled as the active time sync daemon"
   write_json_field "$CONFIG_OPTIMISER_STATE" "time.sync_daemon" "chrony"
 }

@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: boot_config
-# version: 1.1.0
+# version: 1.2.0
 # description: Apply recommended display settings (KMS overlay, HDMI hotplug)
 # category: display
 # default_enabled: 1
@@ -11,7 +11,7 @@
 pi_task_register boot_config \
   description="Apply recommended display settings (KMS overlay, HDMI hotplug)" \
   category=display \
-  version=1.1.0 \
+  version=1.2.0 \
   default_enabled=1 \
   power_sensitive=1 \
   reboot_required=1
@@ -55,7 +55,8 @@ run_boot_config() {
   fi
   if [[ ! -f "$CONFIG_TXT_FILE" ]]; then
     log_info "config.txt not present; skipping boot config tuning"
-    return 0
+    pi_skip_reason "config.txt missing"
+    return 2
   fi
   backup_file "$CONFIG_TXT_FILE"
   local -a entries=()

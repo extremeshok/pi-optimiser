@@ -60,7 +60,13 @@ import os
 from pathlib import Path
 
 def b(name): return "true" if os.environ.get(name, "0") == "1" else "false"
-def s(name): return os.environ.get(name, "") or ""
+def s(name):
+    # Backward-compat: older loaders could round-trip empty scalars as
+    # literal "{}". Treat that legacy sentinel as unset on save.
+    v = os.environ.get(name, "") or ""
+    if v in ("{}", "null", "None"):
+        return ""
+    return v
 
 path = Path(os.environ["PI_CONFIG_PATH"])
 lines = []
@@ -133,13 +139,44 @@ def parse(text):
     # the wrong dict.
     root = {}
     stack = [(-1, root)]
-    for raw in text.splitlines():
+    for lineno, raw in enumerate(text.splitlines(), 1):
         line = raw.rstrip()
-        if not line.strip() or line.lstrip().startswith("#"):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
             continue
+        # List items (`- foo`) are accepted only as direct children of a
+        # map key that already opened a block (e.g. `freeze_tasks:` then
+        # `- fstab`). Keep the legacy behaviour: they're stored as keys
+        # of the current dict so the downstream consumer can read them
+        # via `isinstance(frozen, dict)`.
+        if stripped.startswith("- ") or stripped == "-":
+            indent = len(line) - len(line.lstrip())
+            while stack[-1][0] >= indent:
+                stack.pop()
+            parent = stack[-1][1]
+            if isinstance(parent, dict):
+                parent[stripped] = ""
+            continue
+        # Every non-list line must be `key: value` or `key:` — reject
+        # anything missing the colon so a malformed YAML like
+        # `version 1` (missing `:`) fails loudly instead of silently
+        # landing as an empty nested dict under key "version 1".
+        if ":" not in stripped:
+            raise ValueError(
+                f"line {lineno}: missing ':' separator: {stripped!r}")
         indent = len(line) - len(line.lstrip())
-        key, _, val = line.strip().partition(":")
+        key, _, val = stripped.partition(":")
         val = val.strip()
+        # Distinguish `key:` (map block) from explicit empty scalars like
+        # `key: ""` or `key: # comment`, which must stay strings.
+        has_rhs_token = (val != "")
+        # Reject unbalanced quotes before any stripping. An odd number
+        # of unescaped double- or single-quotes means the value ran off
+        # the end of the line (or has stray quotes in it) — either way,
+        # not something the round-trip writer would ever produce.
+        if val.count('"') % 2 != 0 or val.count("'") % 2 != 0:
+            raise ValueError(
+                f"line {lineno}: unbalanced quote in value: {val!r}")
         # Strip trailing inline comments: `key: value  # comment` →
         # `key: value`. Quoted strings keep any `#` they contain.
         if val.startswith("\"") and val.endswith("\"") and len(val) >= 2:
@@ -154,7 +191,7 @@ def parse(text):
         while stack[-1][0] >= indent:
             stack.pop()
         parent = stack[-1][1]
-        if val == "":
+        if val == "" and not has_rhs_token:
             child = {}
             parent[key.strip()] = child
             stack.append((indent, child))
@@ -186,6 +223,17 @@ def get(d, *keys, default=""):
             return default
     return cur
 
+def get_str(d, *keys, default=""):
+    v = get(d, *keys, default=default)
+    if isinstance(v, dict):
+        return default
+    s = str(v)
+    # Backward-compat: prior parser versions converted empty quoted
+    # strings to dicts, which then saved as literal "{}".
+    if s in ("{}", "null", "None"):
+        return default
+    return s
+
 out = []
 i = data.get("integrations", {})
 out.append(f'INSTALL_TAILSCALE={bv(get(i, "tailscale"))}')
@@ -197,10 +245,10 @@ out.append(f'DOCKER_BUILDX_MULTIARCH={bv(get(docker, "buildx_multiarch"))}')
 out.append(f'DOCKER_CGROUPV2={bv(get(docker, "cgroup_v2"))}')
 zram = get(i, "zram", default={})
 out.append(f'INSTALL_ZRAM={bv(get(zram, "enabled"))}')
-algo = get(zram, "algo", default="")
+algo = get_str(zram, "algo", default="")
 if algo and algo != "lz4":
     out.append(f'ZRAM_ALGO_OVERRIDE={sv(algo)}')
-out.append(f'PROXY_BACKEND={sv(get(i, "proxy_backend"))}')
+out.append(f'PROXY_BACKEND={sv(get_str(i, "proxy_backend"))}')
 out.append(f'INSTALL_NODE_EXPORTER={bv(get(i, "node_exporter"))}')
 out.append(f'INSTALL_SMARTMONTOOLS={bv(get(i, "smartmontools"))}')
 out.append(f'INSTALL_CLI_MODERN={bv(get(i, "cli_modern"))}')
@@ -224,7 +272,7 @@ out.append(f'DISABLE_LEDS={bv(get(h, "disable_leds"))}')
 out.append(f'NVME_TUNE={bv(get(h, "nvme_tune"))}')
 out.append(f'HEADLESS_GPU_MEM={bv(get(h, "headless_gpu_mem"))}')
 out.append(f'USB_UAS_QUIRKS={bv(get(h, "usb_uas_quirks"))}')
-_uas_extra = get(h, "usb_uas_extra")
+_uas_extra = get_str(h, "usb_uas_extra")
 if _uas_extra:
     out.append(f'USB_UAS_EXTRA={sv(_uas_extra)}; USB_UAS_QUIRKS=1')
 for v in ("temp_limit", "temp_soft_limit", "initial_turbo"):
@@ -240,14 +288,14 @@ out.append(f'POWER_OFF_HALT={bv(get(f, "power_off_halt"))}')
 
 s = data.get("security", {})
 out.append(f'SECURE_SSH={bv(get(s, "secure_ssh"))}')
-out.append(f'SSH_IMPORT_GITHUB={sv(get(s, "ssh_import_github"))}')
-out.append(f'SSH_IMPORT_URL={sv(get(s, "ssh_import_url"))}')
+out.append(f'SSH_IMPORT_GITHUB={sv(get_str(s, "ssh_import_github"))}')
+out.append(f'SSH_IMPORT_URL={sv(get_str(s, "ssh_import_url"))}')
 out.append(f'INSTALL_FIREWALL={bv(get(s, "firewall"))}')
 
 sy = data.get("system", {})
-out.append(f'REQUESTED_HOSTNAME={sv(get(sy, "hostname"))}')
-out.append(f'REQUESTED_TIMEZONE={sv(get(sy, "timezone"))}')
-out.append(f'REQUESTED_LOCALE={sv(get(sy, "locale"))}')
+out.append(f'REQUESTED_HOSTNAME={sv(get_str(sy, "hostname"))}')
+out.append(f'REQUESTED_TIMEZONE={sv(get_str(sy, "timezone"))}')
+out.append(f'REQUESTED_LOCALE={sv(get_str(sy, "locale"))}')
 out.append(f'KEEP_SCREEN_BLANKING={bv(get(sy, "keep_screen_blanking"))}')
 out.append(f'REMOVE_CUPS={bv(get(sy, "remove_cups"))}')
 
@@ -257,7 +305,7 @@ if isinstance(m, dict):
     enabled = get(m, "enabled", default="")
     if str(enabled).lower() in ("false", "0", "no", "off"):
         out.append('PI_METRICS_ENABLED=0')
-    mpath = get(m, "path")
+    mpath = get_str(m, "path")
     if mpath:
         out.append(f'PI_METRICS_PATH={sv(mpath)}')
 

@@ -88,7 +88,10 @@ handles that.
    `validate_hostname`, `validate_timezone`, `validate_https_url`,
    `validate_proxy_backend_url`, `validate_github_handle`,
    `validate_task_id`. Add new ones there, keep the signature
-   `validate_X <value>` → 0 on valid, 1 on invalid.
+   `validate_X <value>` → 0 on valid, 1 on invalid. Messages that
+   flow into `log_*` helpers are already scrubbed by `log_sanitize`
+   (`lib/util/log.sh`) — don't reintroduce raw interpolation of
+   untrusted strings into log lines.
 9. **Tasks that require a reboot must flag it.** Declare
    `reboot_required=1` in the `pi_task_register` call (and the
    `# reboot_required: true` metadata comment). `apply_once` will

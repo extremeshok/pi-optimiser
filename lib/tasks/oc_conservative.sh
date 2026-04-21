@@ -31,6 +31,16 @@ run_oc_conservative() {
     pi_skip_reason "preflight power/thermal issues"
     return 2
   fi
+  # Refuse to push clocks higher on a Pi that has *historically* hit
+  # undervoltage / throttle / soft-temp since last boot. Clearing that
+  # flag requires a reboot on a known-good PSU, so the operator can
+  # retry after addressing the root cause.
+  if [[ ${POWER_HISTORY_CLEAN:-1} -eq 0 ]]; then
+    log_warn "Skipping conservative overclock: vcgencmd reports historical undervoltage/throttle since boot"
+    log_warn "Reboot on a known-good 5V/5A PSU and re-run once 'vcgencmd get_throttled' reads 0x0"
+    pi_skip_reason "historical throttle since boot"
+    return 2
+  fi
   if [[ ! -f "$CONFIG_TXT_FILE" ]]; then
     log_warn "config.txt not present; cannot apply conservative overclock"
     pi_skip_reason "config.txt missing"
@@ -39,6 +49,10 @@ run_oc_conservative() {
 
   local -a entries=()
   local profile=""
+  # Overclock values are model-specific — route each profile into its
+  # own section so booting a different SD card on another Pi model
+  # won't apply a value the silicon can't sustain.
+  local section="all"
   if is_pi5; then
     entries=(
       "over_voltage_delta=30000"
@@ -46,30 +60,35 @@ run_oc_conservative() {
       "gpu_freq=950"
     )
     profile="pi5_2800mhz"
+    section="pi5"
   elif is_pi400; then
     entries=(
       "arm_freq=2000"
       "gpu_freq=600"
     )
     profile="pi400_conservative"
+    section="pi400"
   elif is_pi4; then
     entries=(
       "arm_freq=1750"
       "gpu_freq=600"
     )
     profile="pi4_conservative"
+    section="pi4"
   elif is_pi3; then
     entries=(
       "arm_freq=1400"
       "gpu_freq=500"
     )
     profile="pi3_conservative"
+    section="pi3"
   elif is_pizero2; then
     entries=(
       "arm_freq=1200"
       "gpu_freq=500"
     )
     profile="pi_zero2_conservative"
+    section="pi02"
   else
     log_info "Conservative overclock not supported on model ${SYSTEM_MODEL:-unknown}"
     pi_skip_reason "model unsupported"
@@ -80,7 +99,7 @@ run_oc_conservative() {
   local applied=0 entry safe_key rc
   for entry in "${entries[@]}"; do
     rc=0
-    ensure_config_key_value "$entry" "$CONFIG_TXT_FILE" || rc=$?
+    ensure_config_key_value "$entry" "$CONFIG_TXT_FILE" "$section" || rc=$?
     if [[ $rc -eq 0 ]]; then
       log_info "Applied $entry to config.txt"
       safe_key=${entry//=/_}

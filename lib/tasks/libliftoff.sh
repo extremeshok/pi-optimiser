@@ -25,7 +25,8 @@ run_libliftoff() {
   local cfg="$CONFIG_TXT_FILE"
   if [[ ! -f "$cfg" ]]; then
     log_info "config.txt not present; skipping libliftoff tuning"
-    return 0
+    pi_skip_reason "config.txt missing"
+    return 2
   fi
   if ! grep -qi 'liftoff' "$cfg" && ! grep -qi 'vc4-kms-v3d' "$cfg"; then
     log_info "No vc4-kms liftoff settings detected"

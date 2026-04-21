@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Stub lspci — returns a plausible PCIe device list with a Hailo
+# NPU present so lib/tasks/hailo.sh exercises its "device detected"
+# path. Call-recording to a shared log lets future tests assert the
+# task actually probed lspci rather than trivially succeeding.
+log=${PI_OPTIMISER_STUB_LOG:-/tmp/pi-optimiser-stub.log}
+printf 'lspci %s\n' "$*" >> "$log" 2>/dev/null || true
+
+case " $* " in
+  *' -n '*)
+    printf '0000:01:00.0 0200: 1e60:2864\n'  # Hailo-8 vendor/device IDs
+    ;;
+  *)
+    printf '0000:00:00.0 PCI bridge: Broadcom BCM2712 Root Complex\n'
+    printf '0000:01:00.0 Co-processor: Hailo Technologies Ltd Hailo-8 AI Processor\n'
+    ;;
+esac
+exit 0

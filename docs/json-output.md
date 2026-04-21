@@ -105,7 +105,7 @@ Exit codes:
       "enables": ["INSTALL_ZRAM", "SECURE_SSH", "INSTALL_SMARTMONTOOLS",
                   "INSTALL_NODE_EXPORTER", "ENABLE_DNS_CACHE",
                   "INSTALL_FIREWALL", "DISABLE_LEDS",
-                  "KEEP_SCREEN_BLANKING"]
+                  "HEADLESS_GPU_MEM", "KEEP_SCREEN_BLANKING"]
     },
     {
       "name": "desktop",
@@ -116,7 +116,7 @@ Exit codes:
       "enables": ["INSTALL_WATCHDOG", "DISABLE_BLUETOOTH",
                   "WIFI_POWERSAVE_OFF", "REQUEST_UNDERCLOCK",
                   "DISABLE_LEDS", "QUIET_BOOT",
-                  "KEEP_SCREEN_BLANKING"]
+                  "HEADLESS_GPU_MEM", "KEEP_SCREEN_BLANKING"]
     }
   ]
 }

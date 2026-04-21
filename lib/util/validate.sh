@@ -24,9 +24,29 @@ validate_timezone() {
   [[ -f "/usr/share/zoneinfo/$1" ]]
 }
 
-# Basic https:// prefix validation for key-import URLs.
+# https:// URL validation for key-import URLs. Enforces:
+#   - scheme must be exactly `https://`  (rejects http/file/javascript:)
+#   - no whitespace, CR/LF, backticks, quotes, or shell metacharacters
+#     that could smuggle into `curl "$URL"` argv or header-injection
+#     downstream
+#   - no `user[:pass]@host` credentials embedded in the URL (we don't
+#     want curl to quietly log-leak a password on retry)
+#   - overall length capped so a pathological value can't DoS logs
 validate_https_url() {
-  [[ $1 == https://* ]]
+  local url=$1
+  [[ -n "$url" ]] || return 1
+  (( ${#url} <= 2048 )) || return 1
+  [[ $url == https://* ]] || return 1
+  # Reject whitespace, control chars, backticks, backslashes, quotes,
+  # semicolons, pipes, angle brackets, parentheses, and braces. These
+  # aren't legal in an RFC 3986 URI and several are shell/CR/LF bait.
+  [[ $url == *[[:space:][:cntrl:]\`\\\'\"\;\|\<\>\(\)\{\}]* ]] && return 1
+  # Reject `user@host` / `user:pass@host` in the authority. Scan the
+  # substring between `https://` and the next `/` (or end-of-string).
+  local rest=${url#https://}
+  local authority=${rest%%/*}
+  [[ $authority == *@* ]] && return 1
+  return 0
 }
 
 # Validate a proxy-backend URL (used by task_configure_proxy) is a
@@ -56,6 +76,25 @@ validate_github_handle() {
 # before we use the id to build a journal path.
 validate_task_id() {
   [[ $1 =~ ^[a-z][a-z0-9_]{0,63}$ ]]
+}
+
+# Locale identifier: `ll_CC[.encoding][@modifier]` (POSIX locale format).
+# Rejects whitespace, newlines, shell metacharacters, and path traversal
+# so the value can be safely written into /etc/default/locale (which is
+# shell-sourced by /etc/profile) and passed to update-locale.
+validate_locale() {
+  [[ $1 =~ ^[A-Za-z]{1,8}(_[A-Za-z]{1,8})?(\.[A-Za-z0-9-]{1,32})?(@[A-Za-z0-9]{1,32})?$ ]] \
+    || [[ $1 == "C" || $1 == "C.UTF-8" || $1 == "POSIX" ]]
+}
+
+# IANA timezone name: `Region/City[/Sub]`. Strict regex rejects path
+# traversal (`..`), absolute paths, and shell metacharacters so the
+# value can be safely passed to timedatectl, symlinked under
+# /etc/localtime, and written to /etc/timezone. The caller still
+# verifies that /usr/share/zoneinfo/$tz exists.
+validate_timezone_name() {
+  [[ $1 =~ ^[A-Za-z][A-Za-z0-9_+-]{0,63}(/[A-Za-z][A-Za-z0-9_+-]{0,63}){0,3}$ ]] \
+    || [[ $1 == "UTC" ]]
 }
 
 # Log a banner at startup if the kernel/arch is non-standard for a Pi.

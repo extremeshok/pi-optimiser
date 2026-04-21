@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Stub vcgencmd — returns plausible values for the subcommands that
 # pi-optimiser uses in preflight and --report. No real hardware is
-# inspected.
+# inspected. Logs invocations so tests can verify the preflight
+# pipeline touched the expected sub-verbs.
+log=${PI_OPTIMISER_STUB_LOG:-/tmp/pi-optimiser-stub.log}
+printf 'vcgencmd %s\n' "$*" >> "$log" 2>/dev/null || true
+
 case "${1:-}" in
   get_throttled)        printf 'throttled=0x0\n' ;;
   measure_temp)         printf "temp=49.4'C\n" ;;

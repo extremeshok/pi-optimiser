@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: hostname
-# version: 1.1.0
+# version: 1.1.1
 # description: Set the system hostname
 # category: system
 # default_enabled: 0
@@ -12,7 +12,7 @@
 pi_task_register hostname \
   description="Set the system hostname" \
   category=system \
-  version=1.1.0 \
+  version=1.1.1 \
   default_enabled=0 \
   flags="--hostname" \
   gate_var=REQUESTED_HOSTNAME
@@ -29,6 +29,11 @@ run_hostname() {
   fi
   local old_hostname
   old_hostname=$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo "raspberrypi")
+  # Back up /etc/hostname before either branch rewrites it (hostnamectl
+  # updates it in-place too).
+  if [[ -f /etc/hostname ]]; then
+    backup_file /etc/hostname
+  fi
   if command -v hostnamectl >/dev/null 2>&1; then
     hostnamectl set-hostname "$REQUESTED_HOSTNAME"
   else

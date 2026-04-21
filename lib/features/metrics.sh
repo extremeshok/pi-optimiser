@@ -59,7 +59,26 @@ pi_metrics_write() {
   fi
 
   # Write atomically via tmp + rename so readers never see a half-file.
-  local tmp="${target}.$$.tmp"
+  # Use mktemp with a randomized suffix in the same dir as $target so
+  # the rename is atomic on the same filesystem. The previous
+  # "${target}.$$.tmp" form was predictable — if $dir is writable by
+  # an unprivileged user (node_exporter's textfile_collector dir often
+  # is owned by node_exporter:node_exporter, mode 0755 or 0775), that
+  # user could pre-create a symlink at the predictable path and the
+  # root-run shell would write through it.
+  local tmp
+  tmp=$(mktemp "${dir}/pi-optimiser.prom.XXXXXX") || {
+    log_warn "metrics: cannot create tmp in $dir; skipping .prom emit"
+    return 0
+  }
+  # mktemp creates with 0600; chmod now so after rename readers can
+  # pick it up. Don't defer to after rename (brief 0600 window is fine
+  # on textfile_collector since node-exporter polls every 15s, but
+  # pre-rename set is cleaner).
+  chmod 0644 "$tmp" 2>/dev/null || true
+  local _metrics_cleanup
+  # shellcheck disable=SC2064
+  trap "rm -f '$tmp'" RETURN
   {
     cat <<PROM
 # HELP pi_optimiser_task_status Per-task status from the most recent run.
@@ -90,14 +109,12 @@ pi_optimiser_version_info{version="${SCRIPT_VERSION:-unknown}"} 1
 PROM
   } >"$tmp" 2>/dev/null || {
     log_warn "metrics: failed writing $tmp"
-    rm -f "$tmp"
     return 0
   }
-  if ! mv -f "$tmp" "$target"; then
+  if ! mv -f -- "$tmp" "$target"; then
     log_warn "metrics: failed renaming $tmp to $target"
-    rm -f "$tmp"
     return 0
   fi
-  chmod 644 "$target" 2>/dev/null || true
+  chmod 644 -- "$target" 2>/dev/null || true
   log_info "Wrote Prometheus metrics to $target"
 }

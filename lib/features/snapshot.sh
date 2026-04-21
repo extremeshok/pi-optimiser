@@ -21,6 +21,11 @@ declare -a PI_SNAPSHOT_PATHS=(
   /etc/timezone
   /etc/default/locale
   /etc/localtime
+  /etc/dphys-swapfile
+  /etc/resolv.conf
+  /etc/kbd/config
+  /etc/lightdm
+  /etc/fail2ban/jail.d
   /etc/ssh/sshd_config
   /etc/ssh/sshd_config.d
   /etc/nginx/sites-available
@@ -30,6 +35,11 @@ declare -a PI_SNAPSHOT_PATHS=(
   /etc/systemd/journald.conf.d
   /etc/systemd/system.conf.d
   /etc/systemd/user.conf.d
+  /etc/systemd/resolved.conf.d
+  /etc/systemd/system/pi-optimiser-cpu-governor.service
+  /etc/systemd/system/pi-optimiser-wifi-powersave-off.service
+  /etc/systemd/system/pi-unattended-upgrades.service
+  /etc/systemd/system/pi-unattended-upgrades.timer
   /etc/systemd/zram-generator.conf
   /etc/tmpfiles.d/pi-optimiser-varlog.conf
   /etc/apt/apt.conf.d/20pi-optimiser
@@ -117,23 +127,57 @@ pi_restore_snapshot() {
   # shellcheck disable=SC2064
   trap "rm -rf '$stage'" RETURN
 
-  # Defensive pre-scan: reject any archive containing entries that
-  # would escape root on extraction (absolute paths or .. traversal).
-  # GNU tar also enforces this on extract by default, but an explicit
-  # check produces a better error message and prevents partial writes.
+  # Defensive pre-scan: reject member paths that use absolute names or
+  # parent traversal. For symlinks/hardlinks, resolve relative targets
+  # against the link's parent and reject only if they escape above the
+  # archive root. This allows normal distro links such as
+  # /etc/default/locale -> ../locale.conf and
+  # /etc/localtime -> ../usr/share/zoneinfo/... .
   local bad
-  bad=$(tar -tzf "$archive" 2>/dev/null | grep -nE '^(/|(\./)?\.\./|.*/\.\./)' | head -n 1)
+  bad=$(ARCHIVE="$archive" run_python <<'PY' || true
+import os
+import posixpath
+import tarfile
+
+archive = os.environ["ARCHIVE"]
+
+def clean_member_path(name: str) -> str:
+    # Tar members are POSIX paths. Strip a leading "./" noise prefix so
+    # checks treat "./etc/hosts" and "etc/hosts" identically.
+    while name.startswith("./"):
+        name = name[2:]
+    return name
+
+def escapes_root(resolved: str) -> bool:
+    return resolved == ".." or resolved.startswith("../")
+
+with tarfile.open(archive, "r:gz") as tf:
+    for m in tf.getmembers():
+        name = clean_member_path(m.name)
+        if not name:
+            continue
+        if name.startswith("/") or escapes_root(posixpath.normpath(name)):
+            print(f"path:{m.name}")
+            raise SystemExit(1)
+
+        if m.issym() or m.islnk():
+            target = (m.linkname or "").strip()
+            if not target:
+                continue
+            if target.startswith("/"):
+                # Absolute targets are allowed (common in distro-managed
+                # symlinks under /etc); extraction still obeys member-path
+                # safety above.
+                continue
+            parent = posixpath.dirname(name)
+            resolved = posixpath.normpath(posixpath.join(parent, target))
+            if escapes_root(resolved):
+                print(f"link:{m.name}->{m.linkname}")
+                raise SystemExit(1)
+PY
+  )
   if [[ -n "$bad" ]]; then
-    log_error "Snapshot contains unsafe path: $bad"
-    return 1
-  fi
-  # Check for symlinks whose target escapes the archive's directory
-  # tree. `tar -tvzf` listing includes symlink targets in the form
-  # `foo -> /etc/shadow`; we reject any absolute or .. target.
-  bad=$(tar -tvzf "$archive" 2>/dev/null | awk '/->/ { for(i=1;i<=NF;i++) if($i=="->"){print $(i+1); break} }' \
-        | grep -E '^(/|.*/\.\./|\.\./)' | head -n 1)
-  if [[ -n "$bad" ]]; then
-    log_error "Snapshot contains symlink pointing outside archive: $bad"
+    log_error "Snapshot contains unsafe member: $bad"
     return 1
   fi
 
@@ -149,15 +193,16 @@ pi_restore_snapshot() {
   fi
 
   log_info "Extracting snapshot onto the live filesystem"
-  # --no-same-owner prevents chown forgery; --no-absolute-names is a
-  # belt on top of the pre-scan since GNU tar already strips leading /;
-  # --no-overwrite-dir keeps existing dirs' modes rather than restoring
-  # them from the archive (harmless for our own snapshots).
-  if ! tar -xzf "$archive" -C / \
+  # --no-same-owner prevents chown forgery; --no-overwrite-dir keeps
+  # existing dirs' modes rather than restoring them from the archive
+  # (harmless for our own snapshots). Absolute-name handling is already
+  # enforced by the pre-scan and tar's default behavior.
+  local tar_out rc=0
+  tar_out=$(tar -xzf "$archive" -C / \
         --no-same-owner \
-        --no-absolute-names \
-        --no-overwrite-dir 2>/dev/null; then
-    log_error "Snapshot extraction failed"
+        --no-overwrite-dir 2>&1) || rc=$?
+  if [[ $rc -ne 0 ]]; then
+    log_error "Snapshot extraction failed: $tar_out"
     return 1
   fi
   log_info "Snapshot restore complete. Some changes require a reboot."

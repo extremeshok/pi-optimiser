@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: thermal_thresholds
-# version: 1.0.0
+# version: 1.1.0
 # description: Set firmware thermal limits (temp_limit, initial_turbo)
 # category: hardware-clocks
 # default_enabled: 0
@@ -13,7 +13,7 @@
 pi_task_register thermal_thresholds \
   description="Set firmware thermal limits (temp_limit, initial_turbo)" \
   category=hardware-clocks \
-  version=1.0.0 \
+  version=1.1.0 \
   default_enabled=0 \
   power_sensitive=1 \
   flags="--temp-limit,--temp-soft-limit,--initial-turbo" \
@@ -30,6 +30,22 @@ run_thermal_thresholds() {
     log_warn "config.txt not present; cannot tune thermals"
     pi_skip_reason "config.txt missing"
     return 2
+  fi
+  # Defense-in-depth: the CLI validates these, but the YAML path
+  # also sets them and a malformed value like "85\nenable_uart=1"
+  # would inject a second firmware directive into config.txt. Reject
+  # anything that isn't a bare integer before writing.
+  if [[ -n ${TEMP_LIMIT:-} && ! $TEMP_LIMIT =~ ^[0-9]{1,3}$ ]]; then
+    log_error "Invalid TEMP_LIMIT '$TEMP_LIMIT' (expected integer)"
+    return 1
+  fi
+  if [[ -n ${TEMP_SOFT_LIMIT:-} && ! $TEMP_SOFT_LIMIT =~ ^[0-9]{1,3}$ ]]; then
+    log_error "Invalid TEMP_SOFT_LIMIT '$TEMP_SOFT_LIMIT' (expected integer)"
+    return 1
+  fi
+  if [[ -n ${INITIAL_TURBO:-} && ! $INITIAL_TURBO =~ ^[0-9]{1,3}$ ]]; then
+    log_error "Invalid INITIAL_TURBO '$INITIAL_TURBO' (expected integer)"
+    return 1
   fi
   backup_file "$CONFIG_TXT_FILE"
   local rc changed=0

@@ -1,5 +1,32 @@
 # Changelog
 
+## 9.4.0 — 2026-04-21
+
+### Added
+- **`full_upgrade`** (system) — runs `apt-get update && full-upgrade
+  && autoremove && autoclean`, all non-interactive
+  (`DEBIAN_FRONTEND=noninteractive`, `--force-confdef/--force-confold`).
+  Slots **first** in the manifest so every invocation starts with
+  current packages. Unlike every other task it carries `always_run=1`
+  and bypasses the `is_task_done` short-circuit — it deliberately
+  reruns on every pi-optimiser call. Sets `APT_UPDATED=1` so
+  subsequent `ensure_packages` calls skip the redundant
+  `apt-get update`. Default-on; skip with `--skip full_upgrade`.
+- **`--reboot`** flag — after a successful run, if any
+  `reboot_required` task applied, issue `shutdown -r now` immediately.
+  Always uses restart (`-r`), never halt, so remote Pis come back
+  without manual power-cycling.
+- **`always_run` task attribute** in `pi_task_register` — tasks that
+  set `always_run=1` bypass the `is_task_done` completion-state check
+  on every invocation. Useful for tasks that must be idempotent across
+  runs by nature (upgrades, health checks) rather than by state record.
+
+### Removed
+- **`--reboot-after <mins>`** — replaced by `--reboot`. The delayed
+  scheduler added complexity with no real benefit over scheduling
+  a reboot externally; remote-Pi safety requires restart-not-halt
+  semantics that `--reboot` enforces explicitly.
+
 ## 9.3.0 — 2026-04-20
 
 Clears the Tier-3 research items and adds Hailo NPU support.

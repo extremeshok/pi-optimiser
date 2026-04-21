@@ -1,14 +1,24 @@
 #!/usr/bin/env bash
-# Stub rpi-eeprom-update — claims firmware is current.
+# Stub rpi-eeprom-update — claims firmware is current. Logs
+# invocations for test-time assertions (see rpi-update for rationale).
+# Unknown subcommands deliberately return 0 with a marker line so a
+# regression that starts calling a new sub-verb is observable via the
+# log rather than silently erroring out.
+log=${PI_OPTIMISER_STUB_LOG:-/tmp/pi-optimiser-stub.log}
+printf 'rpi-eeprom-update %s\n' "$*" >> "$log" 2>/dev/null || true
+
 case "${1:-}" in
   -a|--auto)
     printf 'rpi-eeprom-update: stub applied\n' >&2
     exit 0 ;;
-  *)
+  ''|-l|--list)
     printf 'BOOTLOADER: up to date\n'
     printf '   CURRENT: Fri 01 Jan 00:00:00 UTC 2024 (0)\n'
     printf '    LATEST: Fri 01 Jan 00:00:00 UTC 2024 (0)\n'
     printf '   RELEASE: default (/lib/firmware/raspberrypi/bootloader-2712/default)\n'
     printf '            Use raspi-config to change the release.\n'
+    exit 0 ;;
+  *)
+    printf 'rpi-eeprom-update: stub UNKNOWN subcommand %s (logged)\n' "$*" >&2
     exit 0 ;;
 esac

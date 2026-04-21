@@ -1,14 +1,24 @@
 #!/usr/bin/env bash
 # Stub rpi-eeprom-config — emits a minimal config and acks --apply.
+# Records invocations so tests can assert eeprom_config really
+# reached this binary (the old stub trivially exited 0 on anything).
+log=${PI_OPTIMISER_STUB_LOG:-/tmp/pi-optimiser-stub.log}
+printf 'rpi-eeprom-config %s\n' "$*" >> "$log" 2>/dev/null || true
+
 case "${1:-}" in
   --apply)
     shift
     printf 'rpi-eeprom-config: stub applied %s\n' "$*" >&2
     exit 0 ;;
   --config|'')
-    printf 'BOOT_UART=0\nWAKE_ON_GPIO=1\nBOOT_ORDER=0xf41\nSDRAM_BANKLOW=0\n'
+    printf 'BOOT_UART=0\nWAKE_ON_GPIO=1\nBOOT_ORDER=0xf41\nSDRAM_BANKLOW=0\nPOWER_OFF_ON_HALT=0\n'
+    exit 0 ;;
+  --edit)
+    # pi-optimiser never edits interactively, but record the attempt
+    # so we see regressions. Still exit 0 so the test doesn't bail.
+    printf 'rpi-eeprom-config: stub --edit (logged, ignored)\n' >&2
     exit 0 ;;
   *)
-    printf 'rpi-eeprom-config: stub received %s\n' "$*" >&2
+    printf 'rpi-eeprom-config: stub UNKNOWN subcommand %s (logged)\n' "$*" >&2
     exit 0 ;;
 esac

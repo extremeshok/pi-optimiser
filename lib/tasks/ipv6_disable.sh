@@ -31,7 +31,9 @@ run_ipv6_disable() {
   fi
   local conf=/etc/sysctl.d/98-pi-optimiser-ipv6.conf
   backup_file "$conf"
-  cat <<'CFG' > "$conf"
+  # Atomic write — a truncated sysctl.d file is rejected at boot and
+  # the values silently fail to apply.
+  _pi_atomic_write "$conf" <<'CFG'
 # Written by pi-optimiser::ipv6_disable. Remove this file + run
 # `sysctl --system` to re-enable IPv6 without a reboot.
 net.ipv6.conf.all.disable_ipv6 = 1

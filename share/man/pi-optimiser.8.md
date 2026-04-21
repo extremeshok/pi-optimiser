@@ -2,7 +2,7 @@
 title: PI-OPTIMISER
 section: 8
 header: System Manager's Manual
-footer: pi-optimiser 9.3.0
+footer: pi-optimiser 9.4.0
 date: 2026-04
 ---
 
@@ -24,12 +24,14 @@ pi-optimiser — Raspberry Pi OS hardening and tuning framework
 
 # DESCRIPTION
 
-pi-optimiser is a modular one-shot hardening and tuning framework
-for Raspberry Pi OS. It ships 40+ tasks across storage, networking,
-security, packages, firmware, and hardware tuning; every task is
-idempotent and records completion state under
-`/etc/pi-optimiser/state.json`. Typical invocations either apply
-**all default-on tasks** (no flags) or a **curated profile**.
+pi-optimiser is a modular hardening and tuning framework for
+Raspberry Pi OS. It ships 40+ tasks across storage, networking,
+security, packages, firmware, and hardware tuning. Every task records
+completion state under `/etc/pi-optimiser/state.json`; the
+`full_upgrade` task is an exception — it always runs first on every
+invocation to keep the system packages current. Typical invocations
+either apply **all default-on tasks** (no flags) or a **curated
+profile**.
 
 The framework includes a whiptail TUI (launched on an interactive
 TTY with no action flags), opt-in self-update from GitHub,
@@ -118,9 +120,10 @@ traversal, or escaping symlinks.
 **--undo --all**
 : Roll back every task with a journal, most recent first.
 
-**--reboot-after** *minutes*
-: If any reboot-required task succeeds, schedule a reboot in
-*minutes* via `shutdown -r`.
+**--reboot**
+: If any reboot-required task succeeds, issue `shutdown -r now`
+immediately after the run completes. Safe for remote Pis — always
+restarts rather than halts.
 
 **--diff**
 : Preview mode. Invokes each config-editing task's preview

@@ -25,6 +25,18 @@ PI_UPDATE_TIMER_UNIT="pi-optimiser-update.timer"
 PI_UPDATE_SERVICE_UNIT="pi-optimiser-update.service"
 PI_UPDATE_SIG_PUBKEY="${PI_OPTIMISER_PUBKEY:-/etc/pi-optimiser/trusted.pub}"
 
+# Matches install.sh — reject plaintext redirects, bound redirects and
+# timeouts, enforce TLS 1.2+. Kept as a shell array so callers pass
+# "${PI_UPDATE_CURL_OPTS[@]}" verbatim.
+PI_UPDATE_CURL_OPTS=(
+  --fail --silent --show-error --location
+  --proto '=https' --proto-redir '=https'
+  --max-redirs 5
+  --connect-timeout 15 --max-time 300
+  --tlsv1.2
+  --retry 3 --retry-delay 2 --retry-connrefused
+)
+
 # Resolve the commit SHA at the configured ref via the GitHub API.
 # Prints the 40-char hash on stdout. Returns non-zero on any failure.
 pi_update_remote_sha() {
@@ -33,7 +45,7 @@ pi_update_remote_sha() {
   local url="https://api.github.com/repos/${repo}/commits/${ref}"
   local body
   body=$(mktemp)
-  if ! curl -fsSL -H 'Accept: application/vnd.github+json' "$url" -o "$body" 2>/dev/null; then
+  if ! curl "${PI_UPDATE_CURL_OPTS[@]}" -H 'Accept: application/vnd.github+json' "$url" -o "$body" 2>/dev/null; then
     rm -f "$body"
     return 1
   fi
@@ -136,12 +148,27 @@ pi_self_update() {
   local staging="$prefix/.staging"
   local release_dir
   release_dir="$prefix/releases/update-$(date +%Y%m%d%H%M%S)-${remote:0:7}"
-  rm -rf "$staging"
+  # Defense in depth: refuse to rm -rf "" or rm -rf "/" if prefix or
+  # the resulting staging path ever end up empty (e.g. PI_PREFIX="" or
+  # an ENV clobbering accident). The :? expansion aborts the function
+  # with a loud shell error rather than obliterating the filesystem.
+  : "${staging:?BUG: staging path is empty}"
+  if [[ "$staging" == "/" || "$staging" == "/*" ]]; then
+    log_error "Refusing to rm -rf suspicious staging path: $staging"
+    return 1
+  fi
+  rm -rf -- "$staging"
   mkdir -p "$staging" "$prefix/releases"
+  # Clean staging on any return path so an interrupted download (Ctrl-C
+  # mid-tarball, signal during extract) doesn't leave /opt/pi-optimiser/
+  # .staging/ behind with a partial tree. Explicit `rm -rf "$staging"`
+  # on the happy path below is kept; RETURN makes error paths safe too.
+  # shellcheck disable=SC2064
+  trap "rm -rf -- '$staging'" RETURN
 
   local tar_url="https://codeload.github.com/${repo}/tar.gz/${remote}"
   local tar_path="$staging/source.tgz"
-  if ! curl -fsSL "$tar_url" -o "$tar_path"; then
+  if ! curl "${PI_UPDATE_CURL_OPTS[@]}" "$tar_url" -o "$tar_path"; then
     log_error "Failed to download tarball $tar_url"
     return 1
   fi
@@ -215,11 +242,12 @@ pi_self_update() {
     local stale
     for stale in "${releases[@]:$keep}"; do
       [[ -z "$stale" ]] && continue
-      rm -rf "${releases_root:?}/${stale:?}"
+      rm -rf -- "${releases_root:?}/${stale:?}"
     done
   fi
 
-  rm -rf "$staging"
+  : "${staging:?BUG: staging path is empty}"
+  rm -rf -- "$staging"
 
   write_json_field "$CONFIG_OPTIMISER_STATE" "update.commit_sha" "$remote"
   write_json_field "$CONFIG_OPTIMISER_STATE" "update.applied_at" \
@@ -270,6 +298,19 @@ pi_enable_update_timer() {
     return 1
   fi
   mkdir -p /etc/systemd/system
+  # Hardening notes:
+  #   - ProtectSystem=full (not strict) because pi_self_update writes to
+  #     /opt/pi-optimiser (releases + current symlink), /usr/local/sbin
+  #     (launcher symlink), /usr/local/share/man, /etc/bash_completion.d,
+  #     and /etc/logrotate.d. "full" protects /usr, /boot, /efi while
+  #     leaving /opt, /usr/local and /etc writable.
+  #   - ProtectHome=true — updates never touch user homes.
+  #   - NoNewPrivileges=true — oneshot, no setuid children expected.
+  #   - PrivateTmp=true — isolate /tmp/staging use.
+  #   - PATH pinned: launcher shells out to curl/tar/bash/ln/mv/cp/find/
+  #     mkdir/chmod which all live in /usr/bin or /bin; include
+  #     /usr/local/sbin so a sibling pi-optimiser launcher still resolves
+  #     if an operator ever overrode $PI_OPTIMISER_BIN.
   cat <<CFG > "/etc/systemd/system/$PI_UPDATE_SERVICE_UNIT"
 [Unit]
 Description=pi-optimiser self-update (opt-in)
@@ -279,9 +320,23 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=$launcher --update --yes --no-tui
 SuccessExitStatus=0
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
 CFG
+  # systemd units must be root-owned 0644 — 0666 (possible if the
+  # operator's umask is loose) would let any local user mutate what
+  # runs as root on every invocation of the timer.
+  chmod 0644 "/etc/systemd/system/$PI_UPDATE_SERVICE_UNIT" 2>/dev/null || true
   cat <<'CFG' > "/etc/systemd/system/pi-optimiser-update.timer"
 [Unit]
 Description=pi-optimiser self-update timer (opt-in)
@@ -296,6 +351,7 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 CFG
+  chmod 0644 "/etc/systemd/system/pi-optimiser-update.timer" 2>/dev/null || true
   systemctl daemon-reload >/dev/null 2>&1 || true
   systemctl enable --now "$PI_UPDATE_TIMER_UNIT" >/dev/null 2>&1 \
     || { log_error "Failed to enable $PI_UPDATE_TIMER_UNIT"; return 1; }

@@ -3,7 +3,8 @@
 #
 # Emits a bash or zsh completion script on stdout. The generated
 # script completes:
-#   - long flags from the hard-coded PI_CLI_ACTION_FLAGS array
+#   - long flags from a hard-coded list (kept in sync with parse_args
+#     in pi-optimiser.sh; there is no registry-based generator yet)
 #   - task ids (from `pi-optimiser --list-tasks`) after --only / --skip / --undo
 #   - profile names after --profile
 #   - file paths after --config / --validate-config / --restore
@@ -34,7 +35,7 @@ _pi_optimiser() {
     --wifi-powersave-off --disable-bluetooth --keep-screen-blanking
     --docker-buildx-multiarch --docker-cgroupv2
     --watch --diff --no-metrics --metrics-path --freeze-task
-    --self-test --show-config --reboot-after
+    --self-test --show-config --reboot
     --install-firewall --power-off-halt --nvme-tune --quiet-boot
     --disable-leds --install-pi-connect --remove-cups
     --headless-gpu-mem --install-chrony --disable-ipv6
@@ -121,6 +122,9 @@ _pi_optimiser() {
     '--only[restrict to task]:task:->tasks'
     '--skip[skip a task]:task:->tasks'
     '--zram-algo[ZRAM algorithm]:algo:(lz4 zstd disabled)'
+    '--temp-limit[hard thermal limit in degrees C]:celsius:'
+    '--temp-soft-limit[soft thermal limit in degrees C]:celsius:'
+    '--initial-turbo[early-boot turbo seconds]:seconds:'
     '--watch[re-run on config.yaml changes]'
     '--diff[preview config.txt/cmdline.txt edits]'
     '--no-metrics[skip Prometheus textfile output]'
@@ -128,8 +132,37 @@ _pi_optimiser() {
     '--freeze-task[treat a task as completed]:task:->tasks'
     '--self-test[run task preconditions read-only]'
     '--show-config[print effective config]'
-    '--reboot-after[reboot N minutes post-run]:minutes:'
+    '--reboot[reboot immediately after a successful run (shutdown -r)]'
     '--install-firewall[install and enable UFW]'
+    '--install-tailscale[install Tailscale mesh VPN]'
+    '--install-docker[install Docker CE]'
+    '--install-zram[enable ZRAM compressed swap]'
+    '--install-wireguard[install WireGuard tooling]'
+    '--allow-both-vpn[permit Tailscale and WireGuard together]'
+    '--install-node-exporter[install prometheus-node-exporter]'
+    '--install-smartmontools[install smartmontools + smartd]'
+    '--install-cli-modern[install modern CLI bundle]'
+    '--install-net-diag[install network-diagnostic bundle]'
+    '--enable-dns-cache[install local DNS resolver]'
+    '--overclock-conservative[safe overclock preset]'
+    '--underclock[reduce clocks for thermals]'
+    '--pi5-fan-profile[Pi 5: cooler fan curve]'
+    '--pcie-gen3[Pi 5: PCIe Gen3 for NVMe HATs]'
+    '--enable-watchdog[enable hardware watchdog]'
+    '--secure-ssh[harden sshd_config]'
+    '--firmware-update[run rpi-update]'
+    '--eeprom-update[update Pi 5 EEPROM]'
+    '--ssh-import-github[import SSH keys from GitHub]:user:'
+    '--ssh-import-url[import SSH keys from URL]:url:'
+    '--hostname[set system hostname]:hostname:'
+    '--timezone[set system timezone]:tz:'
+    '--locale[set system locale]:locale:'
+    '--proxy-backend[container proxy backend]:backend:'
+    '--wifi-powersave-off[disable wifi power saving]'
+    '--disable-bluetooth[disable bluetooth radio]'
+    '--keep-screen-blanking[do not disable screen blanking]'
+    '--docker-buildx-multiarch[enable Docker buildx multiarch]'
+    '--docker-cgroupv2[enable cgroup v2 for Docker]'
     '--power-off-halt[Pi 5 EEPROM: cut 3V3 on shutdown]'
     '--nvme-tune[disable NVMe APST for HAT compatibility]'
     '--quiet-boot[hide splash and silence kernel log]'

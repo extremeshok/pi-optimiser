@@ -29,12 +29,24 @@ load_os_release() {
 
 # Resolve the firmware config.txt / cmdline.txt paths, falling back to
 # the pre-Bookworm /boot/* locations when /boot/firmware/ isn't mounted.
+# If neither location has config.txt / cmdline.txt we leave the defaults
+# untouched so tasks fail loudly with "config.txt missing" instead of
+# silently no-opping against a bogus path.
 detect_boot_paths() {
   if [[ ! -f /boot/firmware/config.txt && -f /boot/config.txt ]]; then
     CONFIG_TXT_FILE=/boot/config.txt
   fi
   if [[ ! -f /boot/firmware/cmdline.txt && -f /boot/cmdline.txt ]]; then
     CMDLINE_FILE=/boot/cmdline.txt
+  fi
+  # Unusual Pi image (boot partition not mounted, or custom image that
+  # never shipped config.txt): warn once here rather than letting every
+  # firmware task complain in turn. log_warn may not exist yet in very
+  # early contexts — guard the call.
+  if [[ ! -f $CONFIG_TXT_FILE && ! -f $CMDLINE_FILE ]]; then
+    if command -v log_warn >/dev/null 2>&1; then
+      log_warn "Neither /boot/firmware/ nor /boot/ contains config.txt/cmdline.txt; firmware tasks will skip"
+    fi
   fi
 }
 
@@ -83,7 +95,15 @@ gather_system_info() {
   detect_boot_paths
 
   if [[ -r /proc/device-tree/model ]]; then
-    SYSTEM_MODEL=$(tr -d '\0' </proc/device-tree/model | tr -d '\n' || true)
+    # /proc/device-tree/model is NUL-terminated; some images have
+    # trailing NULs, spaces, or carriage returns after "Rev 1.0". Strip
+    # NUL, CR, LF, then trim leading/trailing whitespace so substring
+    # matches (`*Raspberry Pi 5*`) and case-folded helpers (`is_pi500`)
+    # behave consistently across Bookworm/Trixie and custom images.
+    SYSTEM_MODEL=$(tr -d '\0\r\n' </proc/device-tree/model || true)
+    # Bash parameter expansion trim: remove leading/trailing whitespace.
+    SYSTEM_MODEL="${SYSTEM_MODEL#"${SYSTEM_MODEL%%[![:space:]]*}"}"
+    SYSTEM_MODEL="${SYSTEM_MODEL%"${SYSTEM_MODEL##*[![:space:]]}"}"
   fi
   if [[ -z "$SYSTEM_MODEL" ]]; then
     SYSTEM_MODEL=$(uname -m)

@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: ufw_firewall
-# version: 1.1.0
+# version: 1.2.0
 # description: Install UFW and open only the ports that active services need
 # category: security
 # default_enabled: 0
@@ -12,7 +12,7 @@
 pi_task_register ufw_firewall \
   description="Install UFW and open only the ports that active services need" \
   category=security \
-  version=1.1.0 \
+  version=1.2.0 \
   default_enabled=0 \
   flags="--install-firewall" \
   gate_var=INSTALL_FIREWALL
@@ -67,6 +67,16 @@ run_ufw_firewall() {
     return 1
   fi
 
+  # Resolve the SSH port BEFORE touching ufw state. If we can't even
+  # determine a port, abort — enabling ufw without an SSH allow rule
+  # is the primary remote-lockout scenario this task must prevent.
+  local ssh_port
+  ssh_port=$(_ufw_ssh_port)
+  if ! [[ $ssh_port =~ ^[0-9]+$ ]] || (( ssh_port < 1 || ssh_port > 65535 )); then
+    log_error "Refusing to enable UFW: could not resolve a valid SSH port (got '${ssh_port}')"
+    return 1
+  fi
+
   # Wipe the slate before rebuilding. We only own UFW when
   # ufw_firewall is enabled — operators who keep hand-crafted rules
   # on top should skip this task and run ufw directly.
@@ -74,10 +84,20 @@ run_ufw_firewall() {
   ufw default deny incoming >/dev/null 2>&1 || true
   ufw default allow outgoing >/dev/null 2>&1 || true
 
-  local ssh_port
-  ssh_port=$(_ufw_ssh_port)
-  ufw allow "${ssh_port}/tcp" comment "pi-optimiser: SSH" >/dev/null 2>&1 || true
-  ufw allow proto icmp comment "pi-optimiser: ping" >/dev/null 2>&1 || true
+  # HARD GATE: the SSH allow MUST succeed before anything else. If ufw
+  # refuses this rule we bail out rather than risk enabling a firewall
+  # that would drop the operator's active session.
+  if ! ufw allow "${ssh_port}/tcp" comment "pi-optimiser: SSH" >/dev/null 2>&1; then
+    log_error "Refusing to enable UFW: 'ufw allow ${ssh_port}/tcp' failed"
+    return 1
+  fi
+  # ICMPv4 (ping) + ICMPv6 (neighbour discovery, PMTUD). ICMPv6 is
+  # required for IPv6 to function at all — without it dual-stack hosts
+  # will silently drop v6 traffic.
+  ufw allow proto icmp comment "pi-optimiser: ping (v4)" >/dev/null 2>&1 || true
+  ufw allow proto ipv6-icmp comment "pi-optimiser: ping (v6)" >/dev/null 2>&1 \
+    || ufw allow proto icmpv6 comment "pi-optimiser: ping (v6)" >/dev/null 2>&1 \
+    || true
 
   local opened=()
   # Tailscale: only allow if the interface is actually up.

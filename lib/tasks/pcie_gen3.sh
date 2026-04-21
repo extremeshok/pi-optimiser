@@ -38,7 +38,8 @@ run_pcie_gen3() {
   fi
   backup_file "$CONFIG_TXT_FILE"
   local rc=0
-  ensure_config_key_value "dtparam=pciex1_gen=3" "$CONFIG_TXT_FILE" || rc=$?
+  # Pi-5-only knob; pin to [pi5] so it can't land inside [none].
+  ensure_config_key_value "dtparam=pciex1_gen=3" "$CONFIG_TXT_FILE" pi5 || rc=$?
   if [[ $rc -eq 0 ]]; then
     log_info "Enabled PCIe Gen 3 in config.txt (unofficial; active after reboot)"
   elif [[ $rc -eq 1 ]]; then

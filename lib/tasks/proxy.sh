@@ -17,6 +17,30 @@ pi_task_register proxy \
   flags="--proxy-backend" \
   gate_var=PROXY_BACKEND
 
+# Strip embedded credentials and common bearer-token query parameters
+# from a URL before logging it.
+#
+# Handles two leak shapes that `/var/log/pi-optimiser.log` must not
+# retain (users share this file for support):
+#   1. userinfo:  `http://alice:s3cret@example.com/path`
+#      -> `http://***@example.com/path`
+#   2. token query params:  `https://host/path?access_token=abc&x=1`
+#      -> `https://host/path?access_token=REDACTED&x=1`
+#      Matches access_token / api_key / apikey / token / auth /
+#      authorization / bearer / key / password / passwd / pwd / secret
+#      / sig / signature (case-insensitive). Single pass, no external
+#      tooling.
+_proxy_redact_url() {
+  local url=$1
+  if [[ $url =~ ^([a-zA-Z][a-zA-Z0-9+.-]*://)[^@/]+@(.*)$ ]]; then
+    url="${BASH_REMATCH[1]}***@${BASH_REMATCH[2]}"
+  fi
+  # shellcheck disable=SC2001  # sed handles case-insensitivity cleanly
+  url=$(printf '%s' "$url" | sed -E \
+    -e 's/([?&])([Aa][Cc][Cc][Ee][Ss][Ss]_?[Tt][Oo][Kk][Ee][Nn]|[Aa][Pp][Ii]_?[Kk][Ee][Yy]|[Tt][Oo][Kk][Ee][Nn]|[Aa][Uu][Tt][Hh]([Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn])?|[Bb][Ee][Aa][Rr][Ee][Rr]|[Kk][Ee][Yy]|[Pp][Aa][Ss][Ss]([Ww][Oo][Rr][Dd])?|[Pp][Ww][Dd]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Ss][Ii][Gg]([Nn][Aa][Tt][Uu][Rr][Ee])?)=[^&#]*/\1\2=REDACTED/g')
+  printf '%s' "$url"
+}
+
 run_proxy() {
   if [[ -z "$PROXY_BACKEND" ]]; then
     log_info "Proxy support not requested; skipping proxy configuration"
@@ -49,15 +73,13 @@ run_proxy() {
   # intended. validate_proxy_backend_url rejects anything that isn't
   # a well-formed http(s) URL before we write the config.
   if ! validate_proxy_backend_url "$PROXY_BACKEND"; then
-    log_error "--proxy-backend: '$PROXY_BACKEND' is not a valid http(s) URL"
+    log_error "--proxy-backend: '$(_proxy_redact_url "$PROXY_BACKEND")' is not a valid http(s) URL"
     return 1
   fi
 
   ensure_packages nginx-light
   mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
-  if [[ -f "$conf" ]]; then
-    backup_file "$conf"
-  fi
+  record_created "$conf"
   cat <<EOF > "$conf"
 
 map \$http_upgrade \$connection_upgrade {
@@ -109,6 +131,9 @@ EOF
     default_target="regular-file:$default_backup"
   fi
 
+  # Register the sites-enabled symlink as "created" so --undo removes
+  # the backlink alongside the sites-available file we already recorded.
+  record_created "$enabled"
   ln -sf "$conf" "$enabled"
   rm -f "$default_link"
 
@@ -136,5 +161,5 @@ EOF
   systemctl enable --now nginx >/dev/null 2>&1 || log_warn "Unable to enable nginx service"
   systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1 || log_warn "Unable to reload nginx"
   write_json_field "$CONFIG_OPTIMISER_STATE" "proxy.backend" "$PROXY_BACKEND"
-  log_info "Proxy configured to $PROXY_BACKEND"
+  log_info "Proxy configured to $(_proxy_redact_url "$PROXY_BACKEND")"
 }

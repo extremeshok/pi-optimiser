@@ -16,6 +16,10 @@ A one-shot hardening and tuning script for **Raspberry Pi OS (Bookworm/Trixie or
 ```bash
 curl -fsSL https://raw.githubusercontent.com/extremeshok/pi-optimiser/master/install.sh | sudo bash
 ```
+Pin a specific release by exporting `PI_OPTIMISER_REF=vX.Y.Z`
+(e.g. `PI_OPTIMISER_REF=v9.4.0 curl … | sudo -E bash`) to freeze
+the ref the installer and later `--update` runs track.
+
 The bootstrap installs into `/opt/pi-optimiser/releases/<id>/`, flips
 the `current` symlink, and drops a launcher at
 `/usr/local/sbin/pi-optimiser`. After install:
@@ -65,12 +69,40 @@ Helpful commands:
 | `--skip <task>` | Skip a task (repeatable). |
 | `--only <task>` | Run only specific tasks (repeatable). |
 | `--install-tailscale` | Enable the Tailscale task. |
+| `--install-wireguard` | Install `wireguard-tools` (mutex with Tailscale unless `--allow-both-vpn`). |
 | `--install-docker` | Enable the Docker task. |
+| `--docker-buildx-multiarch` | Install `qemu-user-static` + seed binfmt so Docker buildx can build multi-arch images. |
+| `--docker-cgroupv2` | Append `systemd.unified_cgroup_hierarchy=1` to `cmdline.txt`. Reboot required. |
+| `--install-pi-connect` | Install Raspberry Pi Connect (WebRTC remote access). |
+| `--install-hailo` | Pi 5/500: install Hailo NPU drivers for the AI Kit / AI HAT+. |
+| `--install-firewall` | Install and enable UFW with deny-in + allow outbound, auto-opens SSH / active VPN / proxy ports. |
+| `--install-node-exporter` | Install `prometheus-node-exporter` on `:9100`. |
+| `--install-smartmontools` | Install `smartmontools` + enable `smartd`. |
+| `--install-cli-modern` | Install a modern CLI bundle (ripgrep, fd, bat, neovim). |
+| `--install-net-diag` | Install network-diagnostic tools (nmap, iperf3, tcpdump). |
+| `--install-chrony` | Replace `systemd-timesyncd` with `chrony` (better on flaky networks). |
+| `--enable-dns-cache` | Enable the `systemd-resolved` stub DNS cache. |
 | `--locale <locale>` | Configure system locale, e.g. `en_GB.UTF-8`. |
 | `--proxy-backend <url|off|disable|disabled>` | Manage the NGINX proxy helper. |
 | `--install-zram` | Enable the compressed ZRAM swap task (disabled by default). |
 | `--zram-algo <lz4|zstd|disabled>` | Override the ZRAM compression or disable existing configuration. |
 | `--overclock-conservative` | Apply CPU/GPU overclock profile (Pi 5/500 runs at 2.8 GHz with `over_voltage_delta=30000`; other models use firmware-safe clocks). Requires healthy power. |
+| `--underclock` | Apply a low-power underclock profile (mutex with `--overclock-conservative`). |
+| `--pcie-gen3` | Pi 5/500: enable PCIe Gen 3 for NVMe HATs (`dtparam=pciex1_gen=3`). Reboot required. |
+| `--temp-limit <C>` | Set firmware `temp_limit` (degrees C). |
+| `--temp-soft-limit <C>` | Set firmware `temp_soft_limit` (degrees C). |
+| `--initial-turbo <sec>` | Set firmware `initial_turbo` window (seconds). |
+| `--nvme-tune` | Disable NVMe APST for compatibility with quirky Pi 5 NVMe HATs. Reboot required. |
+| `--usb-uas-quirks` | Auto-detect known-bad USB-SATA/NVMe bridges and append `usb-storage.quirks` to `cmdline.txt`. |
+| `--usb-uas-extra <list>` | Extra `VID:PID` pairs (comma-separated) for UAS quirks. |
+| `--wifi-powersave-off` | Disable Wi-Fi power save via a systemd helper. |
+| `--disable-bluetooth` | Disable and mask the Bluetooth stack + overlay. |
+| `--disable-ipv6` | Disable IPv6 via sysctl drop-in at `/etc/sysctl.d/98-pi-optimiser-ipv6.conf`. |
+| `--quiet-boot` | Hide the rainbow splash and silence kernel log at boot. Reboot required. |
+| `--disable-leds` | Turn off activity/power/ethernet LEDs (rack/headless). Reboot required. |
+| `--headless-gpu-mem` | Pi 4/400/3/Zero 2 only: shrink the GPU memory split to 16 MB for headless deployments. Pi 5/500 ignored. |
+| `--power-off-halt` | Pi 5/500 EEPROM: cut 3V3 on shutdown (~0.01 W idle). Skip if HATs need 3V3 while "off". |
+| `--remove-cups` | Purge CUPS + printer-driver packages (auto-applied on `kiosk`/`server`/`headless-iot`). |
 | `--secure-ssh` | Disable root SSH login, keep user passwords, and enable fail2ban. |
 | `--firmware-update` | Run `rpi-update` non-interactively (`SKIP_WARNING=1`) to pull the latest Raspberry Pi firmware. Reboot required. |
 | `--eeprom-update` | Refresh the Pi 4/5 bootloader EEPROM via `rpi-eeprom-update -a`. Reboot required. |
@@ -96,7 +128,16 @@ Helpful commands:
 | `--migrate` / `--uninstall` / `--rollback` | Manage the `/opt/pi-optimiser` install tree. |
 | `--tui` / `--no-tui` | Force or suppress the whiptail menu. |
 | `--yes` / `--non-interactive` | Skip confirmation prompts. |
-| `--output {text,json}` | Machine-readable mode for `--status`, `--report`, `--check-update`, `--list-profiles`. |
+| `--output {text,json}` | Machine-readable mode for `--status`, `--report`, `--check-update`, `--list-profiles`, `--show-config`. |
+| `--show-config` | Print the effective config (CLI + YAML + defaults). Honours `--output json`. |
+| `--self-test` | Run every task's preconditions read-only and print a pass/skip table. No side effects. |
+| `--completion {bash,zsh}` | Emit a completion script on stdout. |
+| `--watch` | Re-run on `config.yaml` changes (uses `inotifywait`, polls every 10 s as fallback). |
+| `--diff` | Preview proposed `config.txt` / `cmdline.txt` edits without writing. |
+| `--freeze-task <id>` | Treat `<id>` as completed even if its code version bumps (repeatable). |
+| `--no-metrics` | Skip writing the Prometheus textfile-collector metrics. |
+| `--metrics-path <path>` | Override the Prometheus metrics output path. |
+| `--reboot` | Immediately reboot (`shutdown -r now`) after a successful run when any reboot-required task ran. Safe for remote Pis — always restarts, never halts. |
 | `--allow-both-vpn` | Allow `--install-tailscale` and `--install-wireguard` together (normally mutex). |
 | `--help` / `--version` | Self-explanatory. |
 
@@ -110,6 +151,7 @@ The script executes these tasks in order unless skipped. **Optional** tasks requ
 
 | Task ID | Purpose |
 |---------|---------|
+| `full_upgrade` | **Always runs first on every invocation.** `apt-get update && full-upgrade && autoremove && autoclean`, fully non-interactive. Not idempotent by design — reruns every time to keep packages current. |
 | `remove_bloat` | Purge bundled educational/demo packages and clean apt caches. |
 | `fstab` | Add `noatime` + longer commit interval to `/`. |
 | `tmpfs_tmp` | Mount `/tmp` on tmpfs (200 MB). |
@@ -232,7 +274,7 @@ From 8.0 onwards the tree is:
 pi-optimiser.sh            Entry script
 lib/MANIFEST               Task execution order
 lib/util/*.sh              Shared helpers (14 modules)
-lib/tasks/*.sh             One file per task (42 tasks)
+lib/tasks/*.sh             One file per task (43 tasks)
 lib/features/*.sh          Framework features (profile, report, snapshot, undo)
 ```
 

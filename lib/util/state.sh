@@ -30,17 +30,68 @@ PI_STATE_SCHEMA_TARGET=2
 STATE_JSON_FILE="$MARKER_DIR/state.json"
 STATE_SCHEMA_FILE="$MARKER_DIR/state.schema"
 
+# Write a literal string to $1 atomically (tmpfile + fsync + os.replace
+# + parent-dir fsync). Used for the malformed-state recovery path. The
+# JSON readers/writers below use _pi_state_atomic_json_update which
+# load-modifies-stores under the same atomic discipline.
+_pi_state_atomic_write_literal() {
+  local target=$1
+  local payload=$2
+  PI_STATE_TARGET="$target" PI_STATE_PAYLOAD="$payload" run_python <<'PY'
+import os
+from pathlib import Path
+target = Path(os.environ['PI_STATE_TARGET'])
+payload = os.environ['PI_STATE_PAYLOAD'].encode()
+target.parent.mkdir(parents=True, exist_ok=True)
+tmp = target.with_suffix(target.suffix + '.tmp')
+with open(tmp, 'wb') as fh:
+    fh.write(payload)
+    fh.flush()
+    os.fsync(fh.fileno())
+try:
+    st = target.stat()
+    os.chown(tmp, st.st_uid, st.st_gid)
+    os.chmod(tmp, st.st_mode & 0o7777)
+except FileNotFoundError:
+    os.chmod(tmp, 0o600)
+os.replace(tmp, target)
+try:
+    dfd = os.open(str(target.parent), os.O_DIRECTORY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
+except OSError:
+    pass
+PY
+}
+
+# Emit a JSON-recovery hint used by every read path. Keeps the text in
+# one place so operators see the same instructions each time.
+_pi_state_recovery_hint() {
+  log_error "state.json is unreadable or malformed at $STATE_JSON_FILE"
+  log_error "Recover with one of:"
+  log_error "  sudo mv $STATE_JSON_FILE ${STATE_JSON_FILE}.corrupt.\$(date +%s)"
+  log_error "  sudo pi-optimiser --status   # will reinitialise the file"
+  log_error "Or restore from a recent snapshot (pi-optimiser --restore)."
+}
+
 # Create optimiser state directory and baseline files if missing.
+# The state directory is 0700 so unprivileged local users cannot read
+# the task history (hostnames, SSH config, installed ref). state.json
+# itself is 0600. Callers that need world-readable artefacts (the
+# legacy STATE_FILE) create them explicitly below.
 ensure_marker_store() {
   if [[ ! -d "$MARKER_DIR" ]]; then
     mkdir -p "$MARKER_DIR"
-    chmod 755 "$MARKER_DIR"
   fi
+  chmod 0700 "$MARKER_DIR" 2>/dev/null || true
+  chown root:root "$MARKER_DIR" 2>/dev/null || true
   # Touch the legacy file for backward compat with old tooling that
   # grepped for it; pi_state_migrate() will migrate + rename it.
   if [[ ! -f "$STATE_FILE" && ! -f "$STATE_JSON_FILE" ]]; then
     touch "$STATE_FILE"
-    chmod 644 "$STATE_FILE"
+    chmod 600 "$STATE_FILE"
   fi
   pi_state_migrate
 }
@@ -70,6 +121,10 @@ pi_state_migrate() {
     # Defensive: validate state.json is still parseable. A hand-edit
     # with a trailing comma silently resets everywhere else; we want
     # a loud warning with the original file preserved.
+    #
+    # Idempotency: this block is a no-op when state.json already parses
+    # and already has schema_version == current, which is the common
+    # case on every subsequent run.
     if [[ -f "$STATE_JSON_FILE" ]]; then
       if ! STATE_JSON_PATH="$STATE_JSON_FILE" run_python <<'PY' >/dev/null 2>&1
 import json, os, sys
@@ -80,9 +135,15 @@ PY
         local _corrupt
         _corrupt="${STATE_JSON_FILE}.corrupt-$(date +%Y%m%d%H%M%S)"
         log_warn "state.json is malformed; moving aside to $_corrupt"
+        _pi_state_recovery_hint
         mv -f "$STATE_JSON_FILE" "$_corrupt" 2>/dev/null || true
-        echo '{"schema_version": 2, "tasks": {}}' > "$STATE_JSON_FILE"
-        chmod 644 "$STATE_JSON_FILE"
+        _pi_state_atomic_write_literal "$STATE_JSON_FILE" \
+          $'{\n  "schema_version": 2,\n  "tasks": {}\n}\n'
+        chmod 600 "$STATE_JSON_FILE" 2>/dev/null || true
+      else
+        # File parses — ensure perms are tight even if a previous run
+        # (pre-hardening) left it 0644.
+        chmod 600 "$STATE_JSON_FILE" 2>/dev/null || true
       fi
     fi
     return 0
@@ -128,7 +189,7 @@ with open(target, "w") as fh:
     json.dump(data, fh, indent=2, sort_keys=True)
     fh.write("\n")
 PY
-  chmod 644 "$target"
+  chmod 600 "$target"
   if [[ -f "$legacy" ]]; then
     local bak="${legacy}.pi-optimiser.v1.bak"
     mv "$legacy" "$bak" 2>/dev/null && log_info "Archived legacy v1 state at $bak"
@@ -164,16 +225,22 @@ PY
 }
 
 # Persist dot-delimited key/value pair to JSON, creating parents as needed.
+# Uses a load-modify-store cycle with atomic replace: write the new
+# contents to <path>.tmp, fsync the file, os.replace it over the target,
+# and fsync the parent directory. A crash mid-write (SD card pull, power
+# loss) can never leave a truncated or half-written state.json — either
+# the old or new version is visible, never a partial file.
 write_json_field() {
   local file=$1
   local key=$2
   local value=$3
   STATE_JSON_PATH="$file" STATE_JSON_KEY="$key" STATE_JSON_VALUE="$value" run_python <<'PY'
 import json, os
-path = os.environ['STATE_JSON_PATH']
+from pathlib import Path
+path = Path(os.environ['STATE_JSON_PATH'])
 key = os.environ['STATE_JSON_KEY']
 value = os.environ['STATE_JSON_VALUE']
-os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+path.parent.mkdir(parents=True, exist_ok=True)
 try:
     with open(path) as fh:
         data = json.load(fh)
@@ -184,13 +251,34 @@ parts = key.split('.')
 for part in parts[:-1]:
     ref = ref.setdefault(part, {})
 ref[parts[-1]] = value
-with open(path, 'w') as fh:
+tmp = path.with_suffix(path.suffix + '.tmp')
+with open(tmp, 'w') as fh:
     json.dump(data, fh, indent=2, sort_keys=True)
     fh.write('\n')
+    fh.flush()
+    os.fsync(fh.fileno())
+try:
+    st = path.stat()
+    os.chown(tmp, st.st_uid, st.st_gid)
+    os.chmod(tmp, st.st_mode & 0o7777)
+except FileNotFoundError:
+    os.chmod(tmp, 0o600)
+os.replace(tmp, path)
+try:
+    dfd = os.open(str(path.parent), os.O_DIRECTORY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
+except OSError:
+    pass
 PY
 }
 
-# Record task completion metadata to the JSON state file.
+# Record task completion metadata to the JSON state file. Atomic write
+# via _pi_state_atomic_json semantics (tmp + fsync + replace + parent
+# fsync). State.json is sensitive (lists hostnames, SSH config,
+# installed ref) so it is persisted as 0600 root:root.
 set_task_state() {
   local task=$1
   local status=$2
@@ -202,8 +290,9 @@ set_task_state() {
   PI_TSV="$task_version" run_python <<'PY'
 import json, os
 from datetime import datetime, timezone
-path = os.environ["STATE_JSON_PATH"]
-os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+from pathlib import Path
+path = Path(os.environ["STATE_JSON_PATH"])
+path.parent.mkdir(parents=True, exist_ok=True)
 try:
     with open(path) as fh:
         data = json.load(fh)
@@ -217,14 +306,33 @@ tasks[os.environ["PI_TASK"]] = {
     "description": os.environ["PI_DESC"],
     "task_version": os.environ["PI_TSV"],
 }
-with open(path, "w") as fh:
+tmp = path.with_suffix(path.suffix + '.tmp')
+with open(tmp, "w") as fh:
     json.dump(data, fh, indent=2, sort_keys=True)
     fh.write("\n")
+    fh.flush()
+    os.fsync(fh.fileno())
+try:
+    st = path.stat()
+    os.chown(tmp, st.st_uid, st.st_gid)
+    os.chmod(tmp, st.st_mode & 0o7777)
+except FileNotFoundError:
+    os.chmod(tmp, 0o600)
+os.replace(tmp, path)
+try:
+    dfd = os.open(str(path.parent), os.O_DIRECTORY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
+except OSError:
+    pass
 PY
-  chmod 644 "$STATE_JSON_FILE"
+  chmod 600 "$STATE_JSON_FILE" 2>/dev/null || true
 }
 
-# Remove an entry from the JSON state file.
+# Remove an entry from the JSON state file. Atomic replace so a crash
+# mid-clear still leaves a parseable file.
 clear_task_state() {
   local task=$1
   if [[ ! -f "$STATE_JSON_FILE" ]]; then
@@ -232,7 +340,8 @@ clear_task_state() {
   fi
   STATE_JSON_PATH="$STATE_JSON_FILE" PI_TASK="$task" run_python <<'PY' || return 1
 import json, os
-path = os.environ["STATE_JSON_PATH"]
+from pathlib import Path
+path = Path(os.environ["STATE_JSON_PATH"])
 try:
     with open(path) as fh:
         data = json.load(fh)
@@ -241,9 +350,27 @@ except Exception:
 tasks = data.get("tasks", {})
 tasks.pop(os.environ["PI_TASK"], None)
 data["tasks"] = tasks
-with open(path, "w") as fh:
+tmp = path.with_suffix(path.suffix + '.tmp')
+with open(tmp, "w") as fh:
     json.dump(data, fh, indent=2, sort_keys=True)
     fh.write("\n")
+    fh.flush()
+    os.fsync(fh.fileno())
+try:
+    st = path.stat()
+    os.chown(tmp, st.st_uid, st.st_gid)
+    os.chmod(tmp, st.st_mode & 0o7777)
+except FileNotFoundError:
+    os.chmod(tmp, 0o600)
+os.replace(tmp, path)
+try:
+    dfd = os.open(str(path.parent), os.O_DIRECTORY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
+except OSError:
+    pass
 PY
 }
 
@@ -288,6 +415,9 @@ PY
 # this so `--report` and the post-run summary can surface it.
 pi_mark_reboot_required() {
   local reason=${1:-${CURRENT_TASK:-unspecified}}
+  # Track reboot requirement for THIS invocation so post-run
+  # --reboot isn't triggered by stale prior state.
+  PI_RUN_REBOOT_REQUIRED=1
   write_json_field "$CONFIG_OPTIMISER_STATE" "reboot.required" "true"
   write_json_field "$CONFIG_OPTIMISER_STATE" "reboot.reason" "$reason"
   write_json_field "$CONFIG_OPTIMISER_STATE" "reboot.set_at" \
