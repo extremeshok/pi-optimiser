@@ -35,7 +35,7 @@ fi
 
 SCRIPT_NAME=$(basename "$0")
 readonly SCRIPT_NAME
-SCRIPT_VERSION="9.4.0"
+SCRIPT_VERSION="9.4.1"
 readonly SCRIPT_VERSION
 
 # Globals consumed by sourced lib/util/*.sh modules; shellcheck cannot
