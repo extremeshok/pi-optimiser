@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: timezone
-# version: 1.2.0
+# version: 1.3.0
 # description: Set the system timezone
 # category: system
 # default_enabled: 0
@@ -12,10 +12,25 @@
 pi_task_register timezone \
   description="Set the system timezone" \
   category=system \
-  version=1.2.0 \
+  version=1.3.0 \
   default_enabled=0 \
   flags="--timezone" \
   gate_var=REQUESTED_TIMEZONE
+
+# Re-run hook: when the live system timezone differs from
+# REQUESTED_TIMEZONE, apply_once bypasses the already-completed
+# short-circuit so a zone change actually takes effect.
+pi_timezone_value_changed() {
+  [[ -n "${REQUESTED_TIMEZONE:-}" ]] || return 1
+  local current=""
+  if command -v timedatectl >/dev/null 2>&1; then
+    current=$(timedatectl show --property=Timezone --value 2>/dev/null || true)
+  fi
+  if [[ -z "$current" && -f /etc/timezone ]]; then
+    current=$(tr -d '\n\r ' </etc/timezone 2>/dev/null || true)
+  fi
+  [[ "$current" != "$REQUESTED_TIMEZONE" ]]
+}
 
 run_timezone() {
   if [[ -z "$REQUESTED_TIMEZONE" ]]; then

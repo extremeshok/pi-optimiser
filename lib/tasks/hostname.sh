@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: hostname
-# version: 1.1.1
+# version: 1.2.0
 # description: Set the system hostname
 # category: system
 # default_enabled: 0
@@ -12,10 +12,25 @@
 pi_task_register hostname \
   description="Set the system hostname" \
   category=system \
-  version=1.1.1 \
+  version=1.2.0 \
   default_enabled=0 \
   flags="--hostname" \
   gate_var=REQUESTED_HOSTNAME
+
+# Re-run hook: when the live system hostname differs from
+# REQUESTED_HOSTNAME, apply_once bypasses the already-completed
+# short-circuit so a renamed Pi actually gets renamed.
+pi_hostname_value_changed() {
+  [[ -n "${REQUESTED_HOSTNAME:-}" ]] || return 1
+  local current=""
+  if command -v hostname >/dev/null 2>&1; then
+    current=$(hostname 2>/dev/null || true)
+  fi
+  if [[ -z "$current" && -f /etc/hostname ]]; then
+    current=$(tr -d '\n\r ' </etc/hostname 2>/dev/null || true)
+  fi
+  [[ "$current" != "$REQUESTED_HOSTNAME" ]]
+}
 
 run_hostname() {
   if [[ -z "$REQUESTED_HOSTNAME" ]]; then

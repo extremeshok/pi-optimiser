@@ -3,7 +3,7 @@
 # Coded by Adrian Jon Kriel :: admin@extremeshok.com
 # Project home: https://github.com/extremeshok/pi-optimiser
 # ======================================================================
-# pi-optimiser.sh :: version 9.4.3
+# pi-optimiser.sh :: version 9.4.4
 #======================================================================
 # One-shot optimiser for Raspberry Pi OS desktops. Key capabilities:
 #   - Removes bundled bloatware and trims apt caches for a lean install
@@ -35,7 +35,7 @@ fi
 
 SCRIPT_NAME=$(basename "$0")
 readonly SCRIPT_NAME
-SCRIPT_VERSION="9.4.3"
+SCRIPT_VERSION="9.4.4"
 readonly SCRIPT_VERSION
 
 # Globals consumed by sourced lib/util/*.sh modules; shellcheck cannot
@@ -587,10 +587,24 @@ apply_once() {
     fi
     return 0
   fi
-  if [[ $FORCE -eq 0 && ${PI_TASK_ALWAYS_RUN[$task]:-0} != "1" ]] && is_task_done "$task"; then
+  # A task may define pi_<id>_value_changed to signal that the live
+  # system state differs from the requested value (e.g. hostname /
+  # timezone / locale where the user has asked for something different
+  # from what is currently applied). When that hook returns 0, bypass
+  # the already-completed short-circuit so the task re-runs.
+  local _value_changed=1
+  local _changed_fn="pi_${task}_value_changed"
+  if declare -F "$_changed_fn" >/dev/null 2>&1 && "$_changed_fn"; then
+    _value_changed=0
+  fi
+  if [[ $FORCE -eq 0 && ${PI_TASK_ALWAYS_RUN[$task]:-0} != "1" && $_value_changed -ne 0 ]] \
+       && is_task_done "$task"; then
     log_info "Skipping $task (already completed)"
     SUMMARY_SKIPPED+=("$task (already completed)")
     return 0
+  fi
+  if [[ $_value_changed -eq 0 ]] && is_task_done "$task"; then
+    log_info "Re-running $task: requested value differs from current system state"
   fi
   if [[ $FORCE -eq 1 && $DRY_RUN -eq 0 ]]; then
     # Under --dry-run, preserving the existing state is essential —

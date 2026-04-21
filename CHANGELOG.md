@@ -1,5 +1,21 @@
 # Changelog
 
+## 9.4.4 — 2026-04-21
+
+### Fixed
+- **`hostname` / `timezone` / `locale` re-run when the requested value
+  changes.** Previously, once the task was marked `completed` in
+  `state.json`, changing `--hostname`, `--timezone`, or `--locale`
+  (or the equivalent config-file values) on a later invocation was a
+  no-op — the user had to add `--force` to get the new value applied.
+  `apply_once` now consults an optional per-task hook
+  `pi_<id>_value_changed`. When it returns 0 (the live system
+  `hostname` / timezone / `/etc/default/locale` LANG differs from the
+  requested value), the completed short-circuit is bypassed and the
+  task re-runs, logging "Re-running <task>: requested value differs
+  from current system state". Task versions bumped: `hostname` →
+  1.2.0, `timezone` → 1.3.0, `locale` → 1.3.0.
+
 ## 9.4.3 — 2026-04-21
 
 ### Docs

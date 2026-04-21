@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: locale
-# version: 1.2.0
+# version: 1.3.0
 # description: Set the default system locale
 # category: system
 # default_enabled: 0
@@ -12,10 +12,23 @@
 pi_task_register locale \
   description="Set the default system locale" \
   category=system \
-  version=1.2.0 \
+  version=1.3.0 \
   default_enabled=0 \
   flags="--locale" \
   gate_var=REQUESTED_LOCALE
+
+# Re-run hook: when the live system LANG differs from REQUESTED_LOCALE,
+# apply_once bypasses the already-completed short-circuit so a locale
+# change actually lands in /etc/default/locale.
+pi_locale_value_changed() {
+  [[ -n "${REQUESTED_LOCALE:-}" ]] || return 1
+  local current=""
+  if [[ -f /etc/default/locale ]]; then
+    current=$(awk -F= '$1=="LANG"{gsub(/"/, "", $2); print $2; exit}' \
+      /etc/default/locale 2>/dev/null || true)
+  fi
+  [[ "$current" != "$REQUESTED_LOCALE" ]]
+}
 
 run_locale() {
   if [[ -z "$REQUESTED_LOCALE" ]]; then

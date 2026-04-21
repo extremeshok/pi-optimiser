@@ -614,6 +614,58 @@ grep -qx -- "-r now pi-optimiser --reboot" "$shutdown_log" \
   || fail "missing live reboot log line" "$reboot_out"
 pass "--reboot ignores stale state and triggers only for this run"
 
+step "hostname/timezone/locale re-run when requested value differs from live system"
+# The Docker test container is disposable, so the timezone / locale
+# probes can read real /etc files rewritten here. Hostname is probed
+# via the hostname(1) binary, which we shadow with a shell function.
+mkdir -p /etc/default
+printf "Europe/London\n" >/etc/timezone
+cat >/etc/default/locale <<'EOF'
+LANG=en_GB.UTF-8
+LC_ALL=en_GB.UTF-8
+EOF
+bash -c '
+  set -euo pipefail
+  # shellcheck disable=SC1091
+  source /opt/pi-optimiser/lib/tasks/hostname.sh
+  # shellcheck disable=SC1091
+  source /opt/pi-optimiser/lib/tasks/timezone.sh
+  # shellcheck disable=SC1091
+  source /opt/pi-optimiser/lib/tasks/locale.sh
+
+  # --- hostname: shadow hostname(1) so the probe reads our fixture.
+  hostname() { printf "pi-current\n"; }
+  REQUESTED_HOSTNAME="pi-current"
+  pi_hostname_value_changed \
+    && { echo "FAIL hostname matching current flagged as changed" >&2; exit 1; }
+  REQUESTED_HOSTNAME="pi-new"
+  pi_hostname_value_changed \
+    || { echo "FAIL hostname differing from current not flagged" >&2; exit 1; }
+  REQUESTED_HOSTNAME=""
+  pi_hostname_value_changed \
+    && { echo "FAIL empty REQUESTED_HOSTNAME flagged as changed" >&2; exit 1; }
+
+  # --- timezone: force the /etc/timezone fallback path by making
+  # timedatectl return empty, then rely on the fixture file.
+  timedatectl() { return 1; }
+  REQUESTED_TIMEZONE="Europe/London"
+  pi_timezone_value_changed \
+    && { echo "FAIL timezone matching current flagged as changed" >&2; exit 1; }
+  REQUESTED_TIMEZONE="America/New_York"
+  pi_timezone_value_changed \
+    || { echo "FAIL timezone differing from current not flagged" >&2; exit 1; }
+
+  # --- locale: the probe reads /etc/default/locale directly (no
+  # systemd call to stub), so the fixture is enough.
+  REQUESTED_LOCALE="en_GB.UTF-8"
+  pi_locale_value_changed \
+    && { echo "FAIL locale matching current flagged as changed" >&2; exit 1; }
+  REQUESTED_LOCALE="fr_FR.UTF-8"
+  pi_locale_value_changed \
+    || { echo "FAIL locale differing from current not flagged" >&2; exit 1; }
+'
+pass "pi_<id>_value_changed reports correctly for hostname/timezone/locale"
+
 step "idempotency: --dry-run twice produces the same run-plan output"
 # Run --dry-run --list-tasks twice and diff. Two runs back-to-back
 # should be byte-identical — the registry ordering is
