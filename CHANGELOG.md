@@ -1,5 +1,17 @@
 # Changelog
 
+## 9.4.1 — 2026-04-21
+
+### Fixed
+- **`full_upgrade` moved to `packages` TUI category** — was erroneously
+  filed under `system`; it now appears in the Packages menu where it
+  belongs alongside other apt-driven tasks.
+- **TUI hardware menu resolves overclock/underclock conflict immediately**
+  — previously both could be checked simultaneously and the error was
+  only surfaced at Apply time. Now, if both `oc_conservative` and
+  `underclock` are ticked when leaving the Hardware menu, a radiolist
+  prompts the operator to pick one before returning to the main menu.
+
 ## 9.4.0 — 2026-04-21
 
 ### Added

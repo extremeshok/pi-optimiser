@@ -2,7 +2,7 @@
 # id: full_upgrade
 # version: 1.0.0
 # description: Full system upgrade (update + full-upgrade + autoremove + autoclean)
-# category: system
+# category: packages
 # default_enabled: 1
 # power_sensitive: 0
 # always_run: true
@@ -10,7 +10,7 @@
 
 pi_task_register full_upgrade \
   description="Full system upgrade (update + full-upgrade + autoremove + autoclean)" \
-  category=system \
+  category=packages \
   version=1.0.0 \
   default_enabled=1 \
   always_run=1

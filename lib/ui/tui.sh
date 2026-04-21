@@ -518,7 +518,22 @@ pi_tui_main() {
       storage)   _pi_tui_category storage          "Storage & filesystems" ;;
       system)    _pi_tui_category system           "System" ;;
       network)   _pi_tui_category network          "Networking" ;;
-      hardware)  _pi_tui_category hardware-clocks  "Hardware & clocks" ;;
+      hardware)
+        _pi_tui_category hardware-clocks "Hardware & clocks"
+        if [[ -n "${PI_TUI_SELECTED[oc_conservative]:-}" && -n "${PI_TUI_SELECTED[underclock]:-}" ]]; then
+          local _clk
+          _clk=$(_whiptail --title "Clock conflict" \
+            --radiolist "Overclock and underclock both selected — pick one:" \
+            12 64 2 \
+            oc_conservative "Conservative overclock (faster)"  ON \
+            underclock      "Low-power underclock (cooler/slower)" OFF \
+            3>&1 1>&2 2>&3) || true
+          case ${_clk//\"/} in
+            oc_conservative) unset 'PI_TUI_SELECTED[underclock]' ;;
+            underclock)      unset 'PI_TUI_SELECTED[oc_conservative]' ;;
+          esac
+        fi
+        ;;
       display)   _pi_tui_category display          "Display" ;;
       security)  _pi_tui_category security         "Security" ;;
       packages)  _pi_tui_category packages         "Packages" ;;
