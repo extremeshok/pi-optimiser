@@ -12,6 +12,8 @@ pi-optimiser — Raspberry Pi OS hardening and tuning framework
 
 # SYNOPSIS
 
+**pi-optimiser**
+
 **pi-optimiser** \[*flags*\]
 
 **pi-optimiser --only** *task* \[**--only** *task* ...\] \[**--yes**\]
@@ -27,17 +29,40 @@ pi-optimiser — Raspberry Pi OS hardening and tuning framework
 pi-optimiser is a modular hardening and tuning framework for
 Raspberry Pi OS. It ships 40+ tasks across storage, networking,
 security, packages, firmware, and hardware tuning. Every task records
-completion state under `/etc/pi-optimiser/state.json`; the
-`full_upgrade` task is an exception — it always runs first on every
-invocation to keep the system packages current. Typical invocations
-either apply **all default-on tasks** (no flags) or a **curated
-profile**.
+completion state under `/etc/pi-optimiser/state.json`.
 
 The framework includes a whiptail TUI (launched on an interactive
 TTY with no action flags), opt-in self-update from GitHub,
 configuration via `/etc/pi-optimiser/config.yaml`, pre-change
 snapshots, per-task undo via backup journals, and JSON output for
 scripting.
+
+For most operators the intended entry point is simply:
+
+```text
+sudo pi-optimiser
+```
+
+That opens the guided menu, suggests a starting profile, lets the
+operator toggle task categories, fill in values such as hostname or
+timezone, and then apply the selected changes. CLI flags remain the
+advanced path for automation, remote rollouts, and repeatable batch
+runs.
+
+# INTERACTIVE MODE
+
+When pi-optimiser is launched on an interactive TTY with no action
+flags, it opens the whiptail interface by default.
+
+The TUI flow is:
+
+1. Welcome screen with a suggested profile.
+2. Main menu with category-driven task selection.
+3. Value forms for hostname, timezone, locale, proxy, and SSH keys.
+4. Apply step that saves `/etc/pi-optimiser/config.yaml` and runs the
+   chosen tasks.
+
+Use **--tui** to force the menu and **--no-tui** to suppress it.
 
 # COMMON FLAGS
 

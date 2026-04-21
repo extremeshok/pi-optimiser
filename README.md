@@ -1,8 +1,11 @@
 # pi-optimiser
 
-A one-shot hardening and tuning script for **Raspberry Pi OS (Bookworm/Trixie or newer, 64-bit)**. It trims fat, reduces SD wear, enables kiosk-friendly defaults, and records every change so repeated runs stay safe.
+A menu-driven hardening and tuning tool for **Raspberry Pi OS (Bookworm/Trixie or newer, 64-bit)**. Run `sudo pi-optimiser`, step through the guided menu, and apply storage, security, networking, package, and firmware changes without memorising flags.
+
+![pi-optimiser main menu](docs/media/main-menu.png)
 
 ## What You Get
+- **Menu-driven by default**: launch it on a real terminal and `whiptail` opens a guided flow with profile suggestions, category checklists, value forms, status screens, and an apply step that writes `/etc/pi-optimiser/config.yaml`.
 - **Hardware-aware configuration** for Pi 5/500, Pi 4/400, Pi 3, and Pi Zero 2, with preflight checks for throttling, power issues, and connectivity before any changes.
 - **Storage longevity** tweaks: aggressive apt hygiene, tmpfs mounts for `/tmp` and `/var/log`, journal rate limits, and pessimistic writeback tuning.
 - **Optional extras** you can add à la carte: compressed ZRAM swap, Tailscale, Docker, per-model overclocking (Pi 5/500 ship at 2.8 GHz), NGINX proxy, kiosk display tuning, bootloader EEPROM tuning, non-interactive `rpi-update`, and SSH hardening with fail2ban.
@@ -24,7 +27,14 @@ The bootstrap installs into `/opt/pi-optimiser/releases/<id>/`, flips
 the `current` symlink, and drops a launcher at
 `/usr/local/sbin/pi-optimiser`. After install:
 ```bash
-sudo pi-optimiser --help
+sudo pi-optimiser
+```
+
+![pi-optimiser terminal demo](docs/media/pi-optimiser-demo.gif)
+
+That opens the guided menu on a normal interactive terminal. For a
+quick read-only overview instead, run:
+```bash
 sudo pi-optimiser --report
 ```
 
@@ -40,8 +50,13 @@ sudo ./pi-optimiser.sh
 Or `sudo ./pi-optimiser.sh --migrate` to promote the checkout to an
 installed layout under `/opt/pi-optimiser/`.
 
-Reboot after the first run so mounts, sysctl values, and firmware
-tweaks are applied.
+Typical first-run flow:
+1. Run `sudo pi-optimiser`.
+2. Accept or change the suggested profile on the welcome screen.
+3. Walk the category menus and the **Values** form for hostname,
+   timezone, locale, proxy, and SSH key import.
+4. Select **Apply** to save the config and run the chosen tasks.
+5. Reboot if the run tells you boot or firmware changes need it.
 
 Helpful commands:
 - `sudo pi-optimiser --status` – show task history, timestamps, and
@@ -59,7 +74,43 @@ Helpful commands:
 - `sudo pi-optimiser --snapshot` / `--restore <archive>` – full
   pre-change config snapshot and rollback.
 
-## Command-line Flags
+## Menu-Driven Workflow
+
+For most users, the product is now:
+
+```bash
+sudo pi-optimiser
+```
+
+The interactive flow is:
+
+```mermaid
+flowchart LR
+    A["Run: sudo pi-optimiser"] --> B["Welcome screen<br/>Suggested profile"]
+    B --> C["Main menu"]
+    C --> D["Category checklists<br/>Storage, System, Network, Security, Packages, Firmware"]
+    C --> E["Values forms<br/>Hostname, timezone, locale, proxy, SSH import"]
+    C --> F["Status / update screens"]
+    D --> G["Apply selected changes"]
+    E --> G
+    F --> C
+    G --> H["Save config.yaml and run selected tasks"]
+```
+
+What people see in the TUI:
+- A welcome screen with a suggested profile such as `desktop`, `server`, `kiosk`, or `headless-iot`.
+- A main menu that groups tasks by category instead of forcing users to remember dozens of flags.
+- Value forms for common inputs so hostname, timezone, locale, proxy backend, and SSH key import can be filled in directly.
+- An apply step that saves `/etc/pi-optimiser/config.yaml` and then runs the selected work.
+
+In practice, treat the CLI flags as the advanced path. The default experience is the guided menu.
+
+## Advanced CLI & Automation
+
+The CLI is still fully supported for automation, remote rollouts, and
+repeatable batch runs. Use it when you want to script the tool, pin a
+profile, or run a single task non-interactively.
+
 | Flag | Description |
 |------|-------------|
 | `--force` | Re-run tasks even if marked complete. |
@@ -141,9 +192,19 @@ Helpful commands:
 | `--allow-both-vpn` | Allow `--install-tailscale` and `--install-wireguard` together (normally mutex). |
 | `--help` / `--version` | Self-explanatory. |
 
-Combine flags as needed, for example:
+For non-interactive runs, combine flags as needed, for example:
 ```bash
 sudo ./pi-optimiser.sh --install-tailscale --proxy-backend http://127.0.0.1:8080 --secure-ssh
+```
+
+To force the menu on an installed system:
+```bash
+sudo pi-optimiser --tui
+```
+
+To suppress the menu and stay in batch mode:
+```bash
+sudo pi-optimiser --no-tui --profile server --yes
 ```
 
 ## Tasks & Behaviour
@@ -333,14 +394,35 @@ prefer `curl | sudo bash`.
 - Requires Bash 4+ (Pi OS ships with Bash 5). Run as `root` or via `sudo`.
 
 ## Logging & Rollback
-- State: `/etc/pi-optimiser/state` (CSV-like: task, status, timestamp, description).
-- Backups: original files gain `.pi-optimiser.YYYYMMDDHHMMSS` suffix.
-- Config log: `/var/log/pi-optimiser.log` records every action.
+- State: `/etc/pi-optimiser/state.json` stores per-task completion records and schema version.
+- Backups: original files gain `.pi-optimiser.YYYYMMDDHHMMSS` suffixes, with per-task journals under `/etc/pi-optimiser/backups/`.
+- Config snapshots: `--snapshot` writes tarballs under `/etc/pi-optimiser/snapshots/`.
+- Config log: `/var/log/pi-optimiser.log` records actions when persistent logging is enabled on the system.
 
-To undo specific changes, restore from the backup file you need or re-run with `--only <task>` after manually reverting.
+Use `--undo <task>` for task-level rollback, or `--snapshot` / `--restore <archive>` for broader config recovery.
 
 ## Troubleshooting
+- **Menu did not appear**: run `sudo pi-optimiser --tui`. The guided UI needs an interactive TTY plus `whiptail`; otherwise the tool falls back to CLI mode.
 - **Dry run first** on systems you care about: `sudo ./pi-optimiser.sh --dry-run`.
 - **SSH access**: after enabling `--secure-ssh`, ensure key-based auth is in place. Root login via SSH is blocked.
 - **Tailscale**: run `sudo tailscale up` manually after installation to join your network.
 - **Docker**: a reboot is recommended to load the cgroup hierarchy cleanly if installing Docker.
+
+## Visual Assets
+
+The repo now ships real captures from the current `whiptail` flow:
+- `docs/media/main-menu.png`
+- `docs/media/welcome-screen.png`
+- `docs/media/security-checklist.png`
+- `docs/media/values-form.png`
+- `docs/media/pi-optimiser-demo.gif`
+
+Supporting screens:
+
+![pi-optimiser welcome screen](docs/media/welcome-screen.png)
+
+![pi-optimiser security checklist](docs/media/security-checklist.png)
+
+![pi-optimiser values screen](docs/media/values-form.png)
+
+To refresh or replace the assets, follow [docs/media-plan.md](docs/media-plan.md).
