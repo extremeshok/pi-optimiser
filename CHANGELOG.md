@@ -1,5 +1,15 @@
 # Changelog
 
+## 9.4.2 — 2026-04-21
+
+### Fixed
+- **`disable_services` (→ 1.2.0) masks `openipmi.service`** — when
+  `prometheus-node-exporter-collectors` is installed it pulls in
+  `ipmitool` → `openipmi`. The service fails on every boot with
+  "Starting ipmi drivers ipmi failed!" because a Pi has no IPMI BMC
+  hardware. Masking it (not just disabling) prevents the unit from
+  being started as a dependency.
+
 ## 9.4.1 — 2026-04-21
 
 ### Fixed
