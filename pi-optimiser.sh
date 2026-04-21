@@ -3,7 +3,7 @@
 # Coded by Adrian Jon Kriel :: admin@extremeshok.com
 # Project home: https://github.com/extremeshok/pi-optimiser
 # ======================================================================
-# pi-optimiser.sh :: version 9.3.0
+# pi-optimiser.sh :: version 9.4.3
 #======================================================================
 # One-shot optimiser for Raspberry Pi OS desktops. Key capabilities:
 #   - Removes bundled bloatware and trims apt caches for a lean install
@@ -35,7 +35,7 @@ fi
 
 SCRIPT_NAME=$(basename "$0")
 readonly SCRIPT_NAME
-SCRIPT_VERSION="9.4.2"
+SCRIPT_VERSION="9.4.3"
 readonly SCRIPT_VERSION
 
 # Globals consumed by sourced lib/util/*.sh modules; shellcheck cannot

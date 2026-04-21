@@ -1,8 +1,29 @@
 # pi-optimiser
 
-A menu-driven hardening and tuning tool for **Raspberry Pi OS (Bookworm/Trixie or newer, 64-bit)**. Run `sudo pi-optimiser`, step through the guided menu, and apply storage, security, networking, package, and firmware changes without memorising flags.
+[![ShellCheck](https://github.com/extremeshok/pi-optimiser/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/extremeshok/pi-optimiser/actions/workflows/shellcheck.yml)
+[![Integration](https://github.com/extremeshok/pi-optimiser/actions/workflows/integration.yml/badge.svg)](https://github.com/extremeshok/pi-optimiser/actions/workflows/integration.yml)
+[![Release](https://img.shields.io/github/v/release/extremeshok/pi-optimiser)](https://github.com/extremeshok/pi-optimiser/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+Set up a Raspberry Pi faster, safer, and with less guesswork.
+
+`pi-optimiser` is a menu-driven post-install setup tool for **Raspberry Pi OS (Bookworm/Trixie or newer, 64-bit)**. It helps you harden SSH, tune storage, configure networking, install common packages and services, and apply firmware or boot changes from one guided terminal workflow. New users can follow the menu. Advanced users still get profiles, CLI flags, dry runs, snapshots, undo, and repeatable automation.
+
+[Quick Start](#quick-start) | [Watch Demo](docs/media/pi-optimiser-demo.gif) | [Menu Workflow](#menu-driven-workflow) | [Advanced CLI](#advanced-cli--automation)
 
 ![pi-optimiser main menu](docs/media/main-menu.png)
+
+## Why People Use It
+- **Menu first, flags second**: the default experience is a guided `whiptail` flow instead of a wall of shell options.
+- **Useful changes in one pass**: storage, security, packages, networking, display, services, and firmware tuning are grouped into one workflow.
+- **Safer than ad-hoc tweaking**: dry runs, per-task state, backup journals, snapshots, and undo reduce the risk of hand-editing system files.
+- **Built for real Raspberry Pi deployments**: Pi 5/500, Pi 4/400, Pi 3, and Pi Zero 2 are first-class targets, with hardware-aware defaults and preflight checks.
+
+## Common Use Cases
+- **Headless server / homelab node**: start with `server` for hardened SSH, firewall, DNS cache, node exporter, smartmontools, and LED-off defaults.
+- **Daily desktop Pi**: start with `desktop` when you want the guided setup flow but prefer a lighter touch on services and swap.
+- **Kiosk / signage box**: use `kiosk` for screen-first deployments that need quiet boot, ZRAM, and reliable Wi-Fi.
+- **Small remote or IoT system**: use `headless-iot` for watchdog, Bluetooth-off, underclock, quiet boot, and low-overhead headless defaults.
 
 ## What You Get
 - **Menu-driven by default**: launch it on a real terminal and `whiptail` opens a guided flow with profile suggestions, category checklists, value forms, status screens, and an apply step that writes `/etc/pi-optimiser/config.yaml`.
@@ -31,6 +52,13 @@ sudo pi-optimiser
 ```
 
 ![pi-optimiser terminal demo](docs/media/pi-optimiser-demo.gif)
+
+When you choose **Apply**, the TUI writes `/etc/pi-optimiser/config.yaml`
+automatically. That saved config becomes the repeatable input for later
+batch runs, for example:
+```bash
+sudo pi-optimiser --no-tui --config /etc/pi-optimiser/config.yaml --yes
+```
 
 That opens the guided menu on a normal interactive terminal. For a
 quick read-only overview instead, run:
@@ -407,6 +435,12 @@ Use `--undo <task>` for task-level rollback, or `--snapshot` / `--restore <archi
 - **SSH access**: after enabling `--secure-ssh`, ensure key-based auth is in place. Root login via SSH is blocked.
 - **Tailscale**: run `sudo tailscale up` manually after installation to join your network.
 - **Docker**: a reboot is recommended to load the cgroup hierarchy cleanly if installing Docker.
+
+## FAQ
+- **Will pi-optimiser reboot or halt my Pi on its own?** No, not by default. If you pass `--reboot`, it will restart only when a reboot-required task ran in that same invocation. It does not halt or power off the system automatically.
+- **Do I need to write a config file by hand?** No. The TUI generates `/etc/pi-optimiser/config.yaml` when you hit **Apply**, and you can reuse that file later with `--no-tui`.
+- **Can I roll changes back?** Yes. Use `--undo <task>` for task-level rollback, or `--snapshot` and `--restore <archive>` for broader config recovery.
+- **Does it work on Raspberry Pi OS Desktop and Lite?** Yes. The project is designed for Raspberry Pi OS with systemd on both desktop and headless images.
 
 ## Visual Assets
 

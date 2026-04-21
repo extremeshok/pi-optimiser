@@ -1,5 +1,36 @@
 # Changelog
 
+## 9.4.3 — 2026-04-21
+
+### Docs
+- **README expanded** with CI/release/licence badges, a "Why People Use
+  It" section, common use cases (headless server, daily desktop, kiosk,
+  headless-iot), a "Quick Start / Watch Demo / Menu Workflow / Advanced
+  CLI" nav line, an Apply-writes-`config.yaml` hint, and a FAQ covering
+  reboot behaviour, hand-written configs, rollback, and Desktop/Lite
+  compatibility.
+- **`docs/marketing-copy.md`** added with tagline, About box, short/full
+  about, homepage hero, and listing copy for the repo "About" field,
+  release posts, and future homepage use.
+
+### Tests
+- **TUI Apply round-trip** — new Docker-harness test confirms
+  `_pi_tui_apply` auto-writes `/etc/pi-optimiser/config.yaml`, keeps
+  only the ticked task gates in `ONLY_TASKS`, and that reloading the
+  saved file restores hostname/timezone/locale/proxy and the selected
+  `INSTALL_*` gates exactly.
+- **Snapshot restore with relative symlinks** — verifies
+  `pi_restore_snapshot` accepts safe relative symlinks (e.g.
+  `/etc/default/locale → ../locale.conf`), extracts them intact, and
+  moves the live `backups/` aside into `backups.pre-restore-*`.
+- **`--reboot` scope** — asserts the flag is scoped to the current run:
+  a stale `reboot_required` marker from a prior invocation does not
+  trigger `shutdown -r now`, while a reboot-required task applied in
+  this run (e.g. `quiet_boot` via boot-config change) does.
+- **Flag coverage** — `--reboot` and `--show-config` added to the
+  documented-flag acceptance sweep so every flag in the man page is
+  exercised by `parse_args`.
+
 ## 9.4.2 — 2026-04-21
 
 ### Fixed

@@ -239,6 +239,113 @@ bash -c '
 '
 pass "TUI proxy form sentinel/validation parity"
 
+step "TUI apply saves config.yaml and preserves only the selected gates"
+CFG="$TEST_TMP/tui-apply.yaml" bash -c '
+  set -euo pipefail
+  # shellcheck disable=SC1091
+  source /opt/pi-optimiser/lib/util/python.sh
+  # shellcheck disable=SC1091
+  source /opt/pi-optimiser/lib/util/config_yaml.sh
+  # shellcheck disable=SC1091
+  source /opt/pi-optimiser/lib/ui/tui.sh
+  log_info() { :; }
+
+  PI_CONFIG_DEFAULT="$CFG"
+  declare -a PI_TASK_ORDER=(zram tailscale)
+  declare -A PI_TASK_CATEGORY PI_TASK_DESC PI_TASK_DEFAULT PI_TASK_GATE_VAR
+  declare -A PI_TUI_SELECTED PI_TUI_VISITED_CATEGORIES
+
+  PI_TASK_CATEGORY[zram]="storage"
+  PI_TASK_DESC[zram]="zram desc"
+  PI_TASK_DEFAULT[zram]=0
+  PI_TASK_GATE_VAR[zram]="INSTALL_ZRAM"
+
+  PI_TASK_CATEGORY[tailscale]="integrations"
+  PI_TASK_DESC[tailscale]="tailscale desc"
+  PI_TASK_DEFAULT[tailscale]=0
+  PI_TASK_GATE_VAR[tailscale]="INSTALL_TAILSCALE"
+
+  PI_TUI_VISITED_CATEGORIES[storage]=1
+  PI_TUI_VISITED_CATEGORIES[integrations]=1
+  PI_TUI_SELECTED[zram]=1
+
+  INSTALL_ZRAM=0
+  INSTALL_TAILSCALE=1
+  REQUESTED_HOSTNAME="pi-demo"
+  REQUESTED_TIMEZONE="Europe/London"
+  REQUESTED_LOCALE="en_GB.UTF-8"
+  PROXY_BACKEND="http://127.0.0.1:8080"
+  PI_PROFILE="server"
+
+  pi_validate_mutex() { return 0; }
+  _whiptail() { return 0; }
+
+  _pi_tui_apply
+
+  [[ ${#ONLY_TASKS[@]} -eq 1 ]]
+  [[ "${ONLY_TASKS[0]}" == "zram" ]]
+  [[ "${INSTALL_ZRAM:-0}" == "1" ]]
+  [[ "${INSTALL_TAILSCALE:-0}" == "0" ]]
+  [[ "${PI_TUI_READY_TO_RUN:-0}" -eq 1 ]]
+  [[ -f "$CFG" ]]
+
+  INSTALL_ZRAM=0
+  INSTALL_TAILSCALE=0
+  REQUESTED_HOSTNAME=""
+  REQUESTED_TIMEZONE=""
+  REQUESTED_LOCALE=""
+  PROXY_BACKEND=""
+  pi_config_load "$CFG"
+
+  [[ "${INSTALL_ZRAM:-0}" == "1" ]]
+  [[ "${INSTALL_TAILSCALE:-0}" == "0" ]]
+  [[ "${REQUESTED_HOSTNAME:-}" == "pi-demo" ]]
+  [[ "${REQUESTED_TIMEZONE:-}" == "Europe/London" ]]
+  [[ "${REQUESTED_LOCALE:-}" == "en_GB.UTF-8" ]]
+  [[ "${PROXY_BACKEND:-}" == "http://127.0.0.1:8080" ]]
+'
+pass "TUI apply auto-saves config.yaml and round-trips selections"
+
+step "snapshot restore accepts safe relative symlinks and extracts cleanly"
+bash -c '
+  set -euo pipefail
+  TEST_ROOT=$(mktemp -d /tmp/pi-optimiser-snapshot.XXXXXX)
+  LIVE_ROOT=$(mktemp -d /tmp/pi-optimiser-restore.XXXXXX)
+  trap "rm -rf \"$TEST_ROOT\" \"$LIVE_ROOT\"" EXIT
+
+  ARCHIVE_ROOT="${LIVE_ROOT#/}"
+  SRC_ROOT="$TEST_ROOT/src/$ARCHIVE_ROOT"
+  ARCHIVE="$TEST_ROOT/relative-symlink-ok.tgz"
+  MARKER_DIR="$LIVE_ROOT/etc/pi-optimiser"
+
+  mkdir -p "$SRC_ROOT/etc/default" "$MARKER_DIR/backups"
+  printf "LANG=en_GB.UTF-8\n" > "$SRC_ROOT/etc/locale.conf"
+  ln -s ../locale.conf "$SRC_ROOT/etc/default/locale"
+  printf "stale journal\n" > "$MARKER_DIR/backups/stale.json"
+  tar -czf "$ARCHIVE" -C "$TEST_ROOT/src" "$ARCHIVE_ROOT"
+
+  # shellcheck disable=SC1091
+  source /opt/pi-optimiser/lib/util/python.sh
+  log_info() { :; }
+  log_warn() { :; }
+  log_error() { printf "ERROR %s\n" "$*" >&2; }
+  PI_NON_INTERACTIVE=1
+  # shellcheck disable=SC1091
+  source /opt/pi-optimiser/lib/features/snapshot.sh
+
+  pi_restore_snapshot "$ARCHIVE"
+
+  [[ -L "$LIVE_ROOT/etc/default/locale" ]]
+  [[ "$(readlink "$LIVE_ROOT/etc/default/locale")" == "../locale.conf" ]]
+  grep -qx "LANG=en_GB.UTF-8" "$LIVE_ROOT/etc/locale.conf"
+  shopt -s nullglob
+  moved=( "$MARKER_DIR"/backups.pre-restore-* )
+  shopt -u nullglob
+  (( ${#moved[@]} == 1 ))
+  [[ ! -d "$MARKER_DIR/backups" ]]
+'
+pass "snapshot restore handles safe relative symlinks"
+
 step "--show-config text mode includes expected sections"
 "$BIN" --show-config --config "$TEST_TMP/good.yaml" >"$TEST_TMP/shown.txt"
 grep -q 'Effective pi-optimiser config' "$TEST_TMP/shown.txt"
@@ -451,7 +558,7 @@ declare -a docflags=(
   --enable-dns-cache --install-wireguard --install-node-exporter
   --install-smartmontools --install-cli-modern --install-net-diag
   --docker-buildx-multiarch --docker-cgroupv2
-  --no-metrics --diff
+  --no-metrics --diff --reboot --show-config
 )
 for flag in "${docflags[@]}"; do
   # Ask --list-tasks to run after parse_args; any unknown flag
@@ -468,6 +575,44 @@ for flag in "${docflags[@]}"; do
   fi
 done
 pass "every documented flag accepted by parse_args"
+
+step "--reboot only triggers for reboot-required tasks from this run"
+shutdown_dir="$TEST_TMP/shutdown-bin"
+shutdown_log="$TEST_TMP/shutdown.log"
+mkdir -p "$shutdown_dir" /etc/pi-optimiser /boot/firmware
+cat > "$shutdown_dir/shutdown" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${SHUTDOWN_LOG:?}"
+exit 0
+SH
+chmod +x "$shutdown_dir/shutdown"
+cat > /etc/pi-optimiser/config-optimisations.json <<'JSON'
+{
+  "reboot": {
+    "reason": "stale-prior-run",
+    "required": "true"
+  }
+}
+JSON
+
+: > "$shutdown_log"
+reboot_out=$(PATH="$shutdown_dir:$PATH" SHUTDOWN_LOG="$shutdown_log" \
+  "$BIN" --force --reboot --only sysctl --yes 2>&1 || true)
+[[ ! -s "$shutdown_log" ]] \
+  || fail "--reboot used stale persistent reboot state" "$(cat "$shutdown_log")"
+[[ "$reboot_out" == *"--reboot set but no task in this run flagged reboot-required; skipping"* ]] \
+  || fail "missing stale-reboot skip message" "$reboot_out"
+
+printf '# pi-optimiser test fixture\narm_boost=1\ndtparam=audio=on\n' > /boot/firmware/config.txt
+printf 'console=serial0,115200 console=tty1 root=PARTUUID=abc rootwait\n' > /boot/firmware/cmdline.txt
+: > "$shutdown_log"
+reboot_out=$(PATH="$shutdown_dir:$PATH" SHUTDOWN_LOG="$shutdown_log" \
+  "$BIN" --force --reboot --quiet-boot --only quiet_boot --yes 2>&1 || true)
+grep -qx -- "-r now pi-optimiser --reboot" "$shutdown_log" \
+  || fail "reboot-required task did not invoke shutdown -r now" "$reboot_out"
+[[ "$reboot_out" == *"--reboot: rebooting now"* ]] \
+  || fail "missing live reboot log line" "$reboot_out"
+pass "--reboot ignores stale state and triggers only for this run"
 
 step "idempotency: --dry-run twice produces the same run-plan output"
 # Run --dry-run --list-tasks twice and diff. Two runs back-to-back
