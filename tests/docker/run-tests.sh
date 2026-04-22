@@ -626,6 +626,20 @@ LC_ALL=en_GB.UTF-8
 EOF
 bash -c '
   set -euo pipefail
+  # pi_task_register lives in pi-optimiser.sh itself, not in a sourced
+  # lib, so stub it (and the handful of helpers the task files only
+  # reference from inside run_*) before sourcing the task modules.
+  pi_task_register() { :; }
+  backup_file() { :; }
+  write_json_field() { :; }
+  ensure_packages() { :; }
+  record_created() { :; }
+  validate_timezone_name() { return 0; }
+  validate_locale() { return 0; }
+  log_info() { :; }
+  log_warn() { :; }
+  log_error() { :; }
+  pi_skip_reason() { :; }
   # shellcheck disable=SC1091
   source /opt/pi-optimiser/lib/tasks/hostname.sh
   # shellcheck disable=SC1091
