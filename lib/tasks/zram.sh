@@ -56,6 +56,17 @@ pi_task_register zram \
   flags="--install-zram,--zram-algo" \
   gate_var=INSTALL_ZRAM
 
+pi_zram_value_changed() {
+  local requested stored
+  requested=$(pick_zram_algorithm)
+  stored=$(read_json_field "$CONFIG_OPTIMISER_STATE" "zram.algorithm" 2>/dev/null || echo "")
+  if [[ "$requested" == "disabled" ]]; then
+    [[ "$stored" != "disabled" ]]
+    return
+  fi
+  [[ ${INSTALL_ZRAM:-0} -eq 1 && "$stored" != "$requested" ]]
+}
+
 run_zram() {
   if [[ $ZRAM_ALGO_OVERRIDE == "disabled" ]]; then
     local removed=0

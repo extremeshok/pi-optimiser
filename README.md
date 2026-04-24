@@ -153,7 +153,7 @@ profile, or run a single task non-interactively.
 | `--docker-buildx-multiarch` | Install `qemu-user-static` + seed binfmt so Docker buildx can build multi-arch images. |
 | `--docker-cgroupv2` | Append `systemd.unified_cgroup_hierarchy=1` to `cmdline.txt`. Reboot required. |
 | `--install-pi-connect` | Install Raspberry Pi Connect (WebRTC remote access). |
-| `--install-hailo` | Pi 5/500: install Hailo NPU drivers for the AI Kit / AI HAT+. |
+| `--install-hailo` | Pi 5/500: install Hailo NPU drivers for Hailo HAT hardware. |
 | `--install-firewall` | Install and enable UFW with deny-in + allow outbound, auto-opens SSH / active VPN / proxy ports. |
 | `--install-node-exporter` | Install `prometheus-node-exporter` on `:9100`. |
 | `--install-smartmontools` | Install `smartmontools` + enable `smartd`. |
@@ -362,9 +362,11 @@ From 8.0 onwards the tree is:
 ```
 pi-optimiser.sh            Entry script
 lib/MANIFEST               Task execution order
-lib/util/*.sh              Shared helpers (14 modules)
-lib/tasks/*.sh             One file per task (43 tasks)
-lib/features/*.sh          Framework features (profile, report, snapshot, undo)
+lib/util/*.sh              Shared helpers (15 modules)
+lib/tasks/*.sh             One file per task (54 tasks)
+lib/features/*.sh          Framework features (profiles, report, snapshot,
+                           undo, install, update, completion, metrics,
+                           watch, diff)
 ```
 
 Task IDs are stable and map to `run_<id>` entry functions. Each task

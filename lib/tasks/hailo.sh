@@ -1,7 +1,7 @@
 # >>> pi-task
 # id: hailo
 # version: 1.0.0
-# description: Install Hailo NPU drivers for the Raspberry Pi AI Kit (Pi 5)
+# description: Install Hailo NPU drivers for Raspberry Pi Hailo hardware (Pi 5)
 # category: integrations
 # default_enabled: 0
 # power_sensitive: 0
@@ -10,14 +10,14 @@
 # <<< pi-task
 
 pi_task_register hailo \
-  description="Install Hailo NPU drivers for the Raspberry Pi AI Kit (Pi 5)" \
+  description="Install Hailo NPU drivers for Raspberry Pi Hailo hardware (Pi 5)" \
   category=integrations \
   version=1.0.0 \
   default_enabled=0 \
   flags="--install-hailo" \
   gate_var=INSTALL_HAILO
 
-# The Raspberry Pi AI Kit / AI HAT+ attaches a Hailo-8(L|R) NPU over
+# Raspberry Pi Hailo HAT hardware attaches a Hailo-8(L|R) NPU over
 # PCIe. The stack is shipped in Raspberry Pi OS as the `hailo-all`
 # metapackage, which pulls:
 #   - hailo-dkms            kernel module (needs the kernel headers)
@@ -35,8 +35,7 @@ pi_task_register hailo \
 #     proceeds because the operator may be prepping an image).
 #
 # Pairing the NPU (downloading models, running inference) is outside
-# this task. The Raspberry Pi and Hailo docs cover that:
-#   https://www.raspberrypi.com/documentation/computers/ai.html
+# this task. The Raspberry Pi and Hailo docs cover model setup.
 run_hailo() {
   if [[ ${INSTALL_HAILO:-0} -eq 0 ]]; then
     log_info "Hailo NPU driver install not requested; skipping"
@@ -44,7 +43,7 @@ run_hailo() {
     return 2
   fi
   if ! is_pi5; then
-    log_info "Hailo AI Kit is Pi 5 / Pi 500 only; skipping on ${SYSTEM_MODEL:-unknown}"
+    log_info "Hailo NPU hardware is Pi 5 / Pi 500 only; skipping on ${SYSTEM_MODEL:-unknown}"
     pi_skip_reason "model unsupported"
     return 2
   fi
@@ -73,7 +72,7 @@ run_hailo() {
 
   # Suggest PCIe Gen 3 for HAT+ users; not an error.
   if [[ ${INSTALL_PCIE_GEN3:-0} -ne 1 ]]; then
-    log_info "Tip: pair with --pcie-gen3 for full AI HAT+ throughput (optional)"
+    log_info "Tip: pair with --pcie-gen3 for full Hailo HAT throughput (optional)"
   fi
 
   # Install the metapackage. Upstream occasionally ships it as a
@@ -103,7 +102,7 @@ run_hailo() {
   log_info "Hailo driver stack installed. Next:"
   log_info "  1. Reboot so the DKMS module loads against the running kernel."
   log_info "  2. Verify with 'hailortcli fw-control identify' (or ls /dev/hailo*)."
-  log_info "  3. See https://www.raspberrypi.com/documentation/computers/ai.html for models."
+  log_info "  3. Follow the Raspberry Pi and Hailo model setup guides."
   write_json_field "$CONFIG_OPTIMISER_STATE" "integrations.hailo" "installed"
   pi_mark_reboot_required hailo
 }

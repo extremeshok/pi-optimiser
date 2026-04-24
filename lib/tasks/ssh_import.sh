@@ -17,6 +17,10 @@ pi_task_register ssh_import \
   flags="--ssh-import-github,--ssh-import-url" \
   gate_var=SSH_IMPORT_GITHUB
 
+pi_ssh_import_value_changed() {
+  [[ -n "${SSH_IMPORT_GITHUB:-}" || -n "${SSH_IMPORT_URL:-}" ]]
+}
+
 run_ssh_import() {
   if [[ -z "$SSH_IMPORT_GITHUB" && -z "$SSH_IMPORT_URL" ]]; then
     log_info "No SSH key import requested; skipping"

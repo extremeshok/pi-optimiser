@@ -1,5 +1,33 @@
 # Changelog
 
+## 9.4.5 — 2026-04-24
+
+### Fixed
+- **Config save/load/show parity** now covers the current CLI and TUI
+  option surface, including firewall, quiet boot, LEDs, Pi Connect,
+  Hailo, chrony, IPv6 disable, NVMe tuning, headless GPU memory,
+  power-off halt, CUPS removal, metrics, frozen tasks, USB UAS extras,
+  and the dual-VPN override.
+- **Config profile precedence** now applies `profile:` before explicit
+  YAML keys, while later CLI flags still take final precedence.
+- **Composite task gates** now handle alternate inputs correctly in
+  dry-run and TUI flows for SSH key import, Wi-Fi/Bluetooth power, and
+  ZRAM disable.
+- **Completion** now offers `--undo --all` for bash and zsh.
+- **Input validation** now covers update/install repository settings,
+  update refs, returned commit SHAs, metrics output paths, and USB UAS
+  extra device lists.
+- **Contribution-rule cleanup** removes prohibited service/tooling
+  references outside `AGENTS.md`, including docs, output text, tests,
+  release metadata, and generated bundles, while keeping Hailo hardware
+  support explicit.
+
+### Tests
+- Docker coverage now asserts config round-trip parity, YAML profile
+  application, composite dry-run gates, `--undo --all` completion,
+  metrics/repo/ref validators, generated bundle policy checks, and
+  prohibited-reference scans.
+
 ## 9.4.4 — 2026-04-21
 
 ### Fixed
@@ -120,11 +148,11 @@ Clears the Tier-3 research items and adds Hailo NPU support.
   appends `usb-storage.quirks=VID:PID:u` to `cmdline.txt`. Extra
   pairs can be supplied via `--usb-uas-extra` /
   `hardware.usb_uas_extra`.
-- **`hailo`** (integrations) — installs the Raspberry Pi AI Kit /
-  AI HAT+ driver stack (`hailo-all` metapackage, with a fallback
+- **`hailo`** (integrations) — installs the Raspberry Pi Hailo HAT
+  driver stack (`hailo-all` metapackage, with a fallback
   to the split packages for older images). Probes `lspci` for the
   NPU, warns on kernels older than 6.6.31, and suggests pairing
-  with `--pcie-gen3` for full throughput. LLM / model inference
+  with `--pcie-gen3` for full throughput. Model inference is
   deliberately out of scope — this task installs the driver layer
   only.
 

@@ -50,6 +50,28 @@ PI_OPTIMISER_BIN="${PI_OPTIMISER_BIN:-/usr/local/sbin/pi-optimiser}"
 PI_OPTIMISER_REPO="${PI_OPTIMISER_REPO:-extremeshok/pi-optimiser}"
 PI_OPTIMISER_KEEP="${PI_OPTIMISER_KEEP:-2}"
 
+validate_installer_repo() {
+  [[ $1 =~ ^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$ ]] \
+    && [[ $1 != *".."* ]]
+}
+
+validate_installer_ref() {
+  [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$ ]] \
+    && [[ $1 != *".."* ]] \
+    && [[ $1 != *"//"* ]] \
+    && [[ $1 != *"@{"* ]] \
+    && [[ $1 != *.lock ]]
+}
+
+if ! validate_installer_repo "$PI_OPTIMISER_REPO"; then
+  echo "install.sh: invalid PI_OPTIMISER_REPO (expected owner/name)" >&2
+  exit 1
+fi
+if ! validate_installer_ref "$PI_OPTIMISER_REF"; then
+  echo "install.sh: invalid PI_OPTIMISER_REF" >&2
+  exit 1
+fi
+
 # curl flags: fail-fast, silent progress, show errors, follow HTTPS
 # redirects up to a bounded depth, honor both connect and overall
 # timeouts, reject plaintext redirects. --proto =https,http forbids

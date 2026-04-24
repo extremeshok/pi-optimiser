@@ -2,7 +2,7 @@
 title: PI-OPTIMISER
 section: 8
 header: System Manager's Manual
-footer: pi-optimiser 9.4.4
+footer: pi-optimiser 9.4.5
 date: 2026-04
 ---
 
@@ -236,13 +236,13 @@ discovered via `dmesg | grep -i uas`. Implies `--usb-uas-quirks`.
 
 **--install-hailo**
 : Pi 5 / Pi 500 only. Install the Hailo NPU driver stack for the
-Raspberry Pi AI Kit and AI HAT+ (`hailo-all` metapackage, falling
+Raspberry Pi Hailo HAT hardware (`hailo-all` metapackage, falling
 back to the split `hailort` + `hailo-dkms` + `python3-hailort` +
 `hailo-tappas-core` + `hailofw` list on older Bookworm images).
 Probes `lspci` for the Hailo device and warns on kernels older
 than 6.6.31 (where `hailo-dkms` fails to build). Reboots required
 for the DKMS module to attach. Pair with `--pcie-gen3` for full
-AI HAT+ throughput.
+Hailo HAT throughput.
 
 # SELF-UPDATE (opt-in)
 

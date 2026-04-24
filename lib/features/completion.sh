@@ -44,11 +44,18 @@ _pi_optimiser() {
   "
 
   case "$prev" in
-    --only|--skip|--undo|--freeze-task)
+    --only|--skip|--freeze-task)
       local tasks
       tasks=$(pi-optimiser --list-tasks 2>/dev/null \
         | awk 'NR>2 && $1 ~ /^[a-z]/ {print $1}')
       COMPREPLY=( $(compgen -W "$tasks" -- "$cur") )
+      return 0
+      ;;
+    --undo)
+      local tasks
+      tasks=$(pi-optimiser --list-tasks 2>/dev/null \
+        | awk 'NR>2 && $1 ~ /^[a-z]/ {print $1}')
+      COMPREPLY=( $(compgen -W "--all $tasks" -- "$cur") )
       return 0
       ;;
     --metrics-path)
@@ -101,7 +108,7 @@ _pi_optimiser() {
     '--report[print state report]'
     '--snapshot[tar current config into /etc/pi-optimiser/snapshots]'
     '--restore[restore a snapshot tarball]:archive:_files'
-    '--undo[roll back a task]:task:->tasks'
+    '--undo[roll back a task]:task:->undo_tasks'
     '--check-update[check for updates (exit 10 if ahead)]'
     '--update[self-update from the configured ref]'
     '--enable-update-timer[install daily update timer]'
@@ -184,6 +191,11 @@ _pi_optimiser() {
     tasks)
       local -a tasks
       tasks=( ${(f)"$(pi-optimiser --list-tasks 2>/dev/null | awk 'NR>2 && $1 ~ /^[a-z]/ {print $1}')"} )
+      _describe 'task' tasks
+      ;;
+    undo_tasks)
+      local -a tasks
+      tasks=( --all ${(f)"$(pi-optimiser --list-tasks 2>/dev/null | awk 'NR>2 && $1 ~ /^[a-z]/ {print $1}')"} )
       _describe 'task' tasks
       ;;
   esac

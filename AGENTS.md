@@ -16,9 +16,10 @@ pi-optimiser.sh            entry script (argv, feature dispatch, task loop)
 install.sh                 one-liner bootstrap (curl | sudo bash)
 lib/MANIFEST               task execution order (one id per line)
 lib/util/*.sh              shared helpers (15 modules)
-lib/tasks/*.sh             one file per task (42 tasks at 9.0)
+lib/tasks/*.sh             one file per task (54 tasks at 9.4)
 lib/features/*.sh          framework features (profile, report, snapshot,
-                           undo, install, update)
+                           undo, install, update, completion, metrics,
+                           watch, diff)
 lib/ui/tui.sh              whiptail TUI (optional; gracefully no-ops
                            when whiptail is missing)
 scripts/build-bundle.sh    concatenates the tree into a single-file

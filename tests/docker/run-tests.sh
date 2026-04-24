@@ -45,6 +45,23 @@ shellcheck --severity=warning --shell=bash \
   scripts/*.sh install.sh
 pass "shellcheck"
 
+step "policy scan: prohibited tooling-service references stay confined"
+generic_pat='(^|[^A-Za-z])(A''I|L''LM)([^A-Za-z]|$)'
+service_pat='Cl''aude|Op''enAI|G''PT|Co''pilot|Anth''ropic|ass''istant'
+footer_pat='Generated'' with|Co-Authored''-By|noreply@anth''ropic'
+policy_scan=$(
+  find . \
+    -path ./.git -prune -o \
+    -path ./dist -prune -o \
+    -path ./docs/media -prune -o \
+    -name AGENTS.md -prune -o \
+    -type f -print0 \
+  | xargs -0 grep -InE "$generic_pat|$service_pat|$footer_pat" \
+  || true
+)
+[[ -z "$policy_scan" ]] || fail "prohibited references outside AGENTS.md" "$policy_scan"
+pass "policy scan"
+
 step "info commands should exit 0"
 "$BIN" --version >/dev/null
 "$BIN" --help >/dev/null
@@ -358,6 +375,98 @@ python3 -m json.tool <"$TEST_TMP/shown.json" >/dev/null
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert "metrics" in d and "freeze_tasks" in d and "integrations" in d, d.keys()' "$TEST_TMP/shown.json"
 pass "show-config JSON"
 
+step "config profile applies before explicit YAML keys"
+cat > "$TEST_TMP/profile-server.yaml" <<'YAML'
+version: 1
+profile: server
+security:
+  firewall: false
+integrations:
+  zram:
+    enabled: false
+YAML
+"$BIN" --show-config --config "$TEST_TMP/profile-server.yaml" --output json >"$TEST_TMP/profile-server.json"
+python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d["runtime"]["profile"] == "server", d["runtime"]
+assert d["security"]["secure_ssh"] is True, d["security"]
+assert d["security"]["firewall"] is False, d["security"]
+assert d["integrations"]["zram"]["enabled"] is False, d["integrations"]["zram"]
+assert d["hardware"]["disable_leds"] is True, d["hardware"]
+assert d["hardware"]["headless_gpu_mem"] is True, d["hardware"]
+' "$TEST_TMP/profile-server.json"
+pass "config profile applies before explicit YAML keys"
+
+step "config save/load round-trips current option surface"
+CFG="$TEST_TMP/full-roundtrip.yaml" bash -c '
+  set -euo pipefail
+  # shellcheck disable=SC1091
+  source /opt/pi-optimiser/lib/util/python.sh
+  # shellcheck disable=SC1091
+  source /opt/pi-optimiser/lib/util/config_yaml.sh
+  log_info() { :; }
+
+  declare -A PI_FROZEN_TASKS=([fstab]=1 [zram]=1)
+  PI_PROFILE=custom
+  INSTALL_FIREWALL=1
+  QUIET_BOOT=1
+  DISABLE_LEDS=1
+  INSTALL_PI_CONNECT=1
+  INSTALL_HAILO=1
+  INSTALL_CHRONY=1
+  DISABLE_IPV6=1
+  NVME_TUNE=1
+  HEADLESS_GPU_MEM=1
+  POWER_OFF_HALT=1
+  REMOVE_CUPS=1
+  ALLOW_BOTH_VPN=1
+  USB_UAS_QUIRKS=1
+  USB_UAS_EXTRA=152d:0578
+  PI_METRICS_ENABLED=0
+  PI_METRICS_PATH=/tmp/pi-optimiser.prom
+  pi_config_save "$CFG"
+
+  declare -A PI_FROZEN_TASKS=()
+  INSTALL_FIREWALL=0
+  QUIET_BOOT=0
+  DISABLE_LEDS=0
+  INSTALL_PI_CONNECT=0
+  INSTALL_HAILO=0
+  INSTALL_CHRONY=0
+  DISABLE_IPV6=0
+  NVME_TUNE=0
+  HEADLESS_GPU_MEM=0
+  POWER_OFF_HALT=0
+  REMOVE_CUPS=0
+  ALLOW_BOTH_VPN=0
+  USB_UAS_QUIRKS=0
+  USB_UAS_EXTRA=""
+  PI_METRICS_ENABLED=1
+  PI_METRICS_PATH=""
+  pi_config_load "$CFG"
+
+  [[ "${INSTALL_FIREWALL:-0}" == "1" ]]
+  [[ "${QUIET_BOOT:-0}" == "1" ]]
+  [[ "${DISABLE_LEDS:-0}" == "1" ]]
+  [[ "${INSTALL_PI_CONNECT:-0}" == "1" ]]
+  [[ "${INSTALL_HAILO:-0}" == "1" ]]
+  [[ "${INSTALL_CHRONY:-0}" == "1" ]]
+  [[ "${DISABLE_IPV6:-0}" == "1" ]]
+  [[ "${NVME_TUNE:-0}" == "1" ]]
+  [[ "${HEADLESS_GPU_MEM:-0}" == "1" ]]
+  [[ "${POWER_OFF_HALT:-0}" == "1" ]]
+  [[ "${REMOVE_CUPS:-0}" == "1" ]]
+  [[ "${ALLOW_BOTH_VPN:-0}" == "1" ]]
+  [[ "${USB_UAS_QUIRKS:-0}" == "1" ]]
+  [[ "${USB_UAS_EXTRA:-}" == "152d:0578" ]]
+  [[ "${PI_METRICS_ENABLED:-1}" == "0" ]]
+  [[ "${PI_METRICS_PATH:-}" == "/tmp/pi-optimiser.prom" ]]
+  [[ -n "${PI_FROZEN_TASKS[fstab]:-}" ]]
+  [[ -n "${PI_FROZEN_TASKS[zram]:-}" ]]
+'
+pass "config save/load round-trips current option surface"
+
 step "--completion bash / zsh produce usable output"
 # Capture stdout; assert a completion-ish substring so an empty
 # completion (real regression we shipped in 9.0.2) fails hard.
@@ -372,6 +481,8 @@ zsh_comp=$("$BIN" --completion zsh)
   || fail "bash completion has no pi-optimiser reference" "$bash_comp"
 [[ "$zsh_comp" == *"compdef"* || "$zsh_comp" == *"pi-optimiser"* ]] \
   || fail "zsh completion has no compdef/pi-optimiser marker" "$zsh_comp"
+[[ "$bash_comp" == *"--all"* ]] \
+  || fail "bash completion missing --undo --all candidate" "$bash_comp"
 pass "completion"
 
 step "--diff flags accepted; no writes to /boot/firmware AND emits diff output"
@@ -479,6 +590,21 @@ if [[ "$out" != *"[dry-run] usb_uas_quirks would run"* ]]; then
   fail "--usb-uas-extra alone should gate the usb_uas_quirks task" "$out"
 fi
 pass "--usb-uas-extra implies --usb-uas-quirks"
+
+step "composite gates route alternate inputs under --dry-run"
+out=$("$BIN" --dry-run --only ssh_import --ssh-import-url https://example.com/keys.txt --yes 2>&1 || true)
+if [[ "$out" != *"[dry-run] ssh_import would run"* ]]; then
+  fail "--ssh-import-url did not activate ssh_import" "$out"
+fi
+out=$("$BIN" --dry-run --only wifi_bt_power --disable-bluetooth --yes 2>&1 || true)
+if [[ "$out" != *"[dry-run] wifi_bt_power would run"* ]]; then
+  fail "--disable-bluetooth did not activate wifi_bt_power" "$out"
+fi
+out=$("$BIN" --dry-run --only zram --zram-algo disabled --yes 2>&1 || true)
+if [[ "$out" != *"[dry-run] zram would run"* ]]; then
+  fail "--zram-algo disabled did not activate zram teardown" "$out"
+fi
+pass "composite gates route alternate inputs under --dry-run"
 
 step "--remove-cups flag wires REMOVE_CUPS and server profile implies cleanup heuristic"
 # Two assertions, both real:
@@ -781,6 +907,20 @@ validator_out=$(bash -c '
   check validate_proxy_backend_url "http://127.0.0.1:8080/api"    ok
   check validate_proxy_backend_url "http://x.com; id"             fail
   check validate_proxy_backend_url ""                             fail
+  # Repo/ref/update helpers
+  check validate_github_repo "extremeshok/pi-optimiser"           ok
+  check validate_github_repo "../bad"                             fail
+  check validate_git_ref "master"                                 ok
+  check validate_git_ref "v9.4.4"                                 ok
+  check validate_git_ref "../bad"                                 fail
+  check validate_commit_sha "0123456789abcdef0123456789abcdef01234567" ok
+  check validate_commit_sha "not-a-sha"                           fail
+  # Metrics and USB list validators
+  check validate_metrics_path "/tmp/pi-optimiser.prom"            ok
+  check validate_metrics_path "relative.prom"                     fail
+  check validate_metrics_path "/tmp/../x.prom"                    fail
+  check validate_usb_uas_list "152d:0578,174c:55aa"               ok
+  check validate_usb_uas_list "bad:list"                          fail
   exit $rc
 ' 2>&1) || fail "validator unit tests failed" "$validator_out"
 pass "validator unit tests (hostname/locale/tz/url/github/task/proxy)"
@@ -799,7 +939,9 @@ for pair in \
   "--ssh-import-url 'http://x.com':URL must begin with https" \
   "--temp-limit 999:in 40..85" \
   "--initial-turbo 120:in 0..60" \
-  "--proxy-backend 'http://x.com; id':invalid URL"; do
+  "--proxy-backend 'http://x.com; id':invalid URL" \
+  "--metrics-path relative.prom:absolute .prom path" \
+  "--usb-uas-extra bad:list:invalid VID:PID list"; do
   args=${pair%:*}
   needle=${pair##*:}
   # shellcheck disable=SC2086  # intentional word-splitting for multi-arg pairs
@@ -809,6 +951,37 @@ for pair in \
   fi
 done
 pass "CLI arg validators reject malformed input"
+
+step "config/install/update validators reject unsafe environment and YAML values"
+cat > "$TEST_TMP/bad-metrics.yaml" <<'YAML'
+version: 1
+metrics:
+  path: relative.prom
+YAML
+if "$BIN" --validate-config "$TEST_TMP/bad-metrics.yaml" 2>/dev/null; then
+  fail "expected --validate-config to reject relative metrics path"
+fi
+cat > "$TEST_TMP/bad-uas.yaml" <<'YAML'
+version: 1
+hardware:
+  usb_uas_extra: bad:list
+YAML
+if "$BIN" --validate-config "$TEST_TMP/bad-uas.yaml" 2>/dev/null; then
+  fail "expected --validate-config to reject malformed usb_uas_extra"
+fi
+if PI_OPTIMISER_REPO="../bad" bash install.sh >/dev/null 2>&1; then
+  fail "install.sh accepted unsafe PI_OPTIMISER_REPO"
+fi
+if PI_OPTIMISER_REF="../bad" bash install.sh >/dev/null 2>&1; then
+  fail "install.sh accepted unsafe PI_OPTIMISER_REF"
+fi
+if PI_OPTIMISER_REPO="../bad" "$BIN" --check-update --yes >/dev/null 2>&1; then
+  fail "--check-update accepted unsafe PI_OPTIMISER_REPO"
+fi
+if PI_OPTIMISER_REF="../bad" "$BIN" --check-update --yes >/dev/null 2>&1; then
+  fail "--check-update accepted unsafe PI_OPTIMISER_REF"
+fi
+pass "config/install/update validators reject unsafe environment and YAML values"
 
 step "CLI arg validators accept legitimate edge-case values"
 # Regression safety-net for over-tightening. Values here are real IANA
@@ -1581,6 +1754,9 @@ for flag in --install-hailo --install-chrony --headless-gpu-mem \
   [[ "$bundle_help" == *"$flag"* ]] \
     || fail "bundle --help missing $flag (build-bundle dropped a task file?)" "$bundle_help"
 done
+bundle_policy_scan=$(grep -InE "$generic_pat|$service_pat|$footer_pat" "$TEST_TMP/bundle.sh" || true)
+[[ -z "$bundle_policy_scan" ]] \
+  || fail "generated bundle contains prohibited references" "$bundle_policy_scan"
 pass "bundle (9.3 flags present)"
 
 printf '\nAll integration checks passed.\n'

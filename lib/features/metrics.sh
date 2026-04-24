@@ -40,6 +40,11 @@ pi_metrics_write() {
 
   local target
   if [[ -n "${PI_METRICS_PATH:-}" ]]; then
+    if declare -F validate_metrics_path >/dev/null 2>&1 \
+        && ! validate_metrics_path "$PI_METRICS_PATH"; then
+      log_warn "metrics: invalid metrics path '$PI_METRICS_PATH'; skipping .prom emit"
+      return 0
+    fi
     target=$PI_METRICS_PATH
   elif [[ -d "$(dirname "$PI_METRICS_DEFAULT_PATH")" ]]; then
     target=$PI_METRICS_DEFAULT_PATH

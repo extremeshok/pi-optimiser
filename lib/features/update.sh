@@ -42,6 +42,14 @@ PI_UPDATE_CURL_OPTS=(
 pi_update_remote_sha() {
   local repo=${PI_OPTIMISER_REPO:-$PI_OPTIMISER_REPO_DEFAULT}
   local ref=${PI_OPTIMISER_REF:-$PI_OPTIMISER_REF_DEFAULT}
+  if ! validate_github_repo "$repo"; then
+    log_error "Invalid PI_OPTIMISER_REPO '$repo' (expected owner/name)"
+    return 1
+  fi
+  if ! validate_git_ref "$ref"; then
+    log_error "Invalid PI_OPTIMISER_REF '$ref'"
+    return 1
+  fi
   local url="https://api.github.com/repos/${repo}/commits/${ref}"
   local body
   body=$(mktemp)
@@ -65,6 +73,10 @@ PY
   )
   rm -f "$body"
   if [[ -z "$sha" ]]; then
+    return 1
+  fi
+  if ! validate_commit_sha "$sha"; then
+    log_error "Remote returned an invalid commit SHA"
     return 1
   fi
   echo "$sha"
@@ -134,6 +146,14 @@ pi_self_update() {
   fi
   local repo=${PI_OPTIMISER_REPO:-$PI_OPTIMISER_REPO_DEFAULT}
   local ref=${PI_OPTIMISER_REF:-$PI_OPTIMISER_REF_DEFAULT}
+  if ! validate_github_repo "$repo"; then
+    log_error "Invalid PI_OPTIMISER_REPO '$repo' (expected owner/name)"
+    return 1
+  fi
+  if ! validate_git_ref "$ref"; then
+    log_error "Invalid PI_OPTIMISER_REF '$ref'"
+    return 1
+  fi
   local remote installed
   remote=$(pi_update_remote_sha) || { log_error "Failed to resolve remote SHA"; return 1; }
   installed=$(pi_update_installed_sha)

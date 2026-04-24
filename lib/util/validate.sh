@@ -78,6 +78,40 @@ validate_task_id() {
   [[ $1 =~ ^[a-z][a-z0-9_]{0,63}$ ]]
 }
 
+# GitHub repository path, as owner/name. Used before interpolating
+# PI_OPTIMISER_REPO into GitHub API and codeload URLs.
+validate_github_repo() {
+  [[ $1 =~ ^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$ ]] \
+    && [[ $1 != *".."* ]]
+}
+
+# Branch, tag, or commit-ish ref safe for URL path interpolation.
+validate_git_ref() {
+  [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$ ]] \
+    && [[ $1 != *".."* ]] \
+    && [[ $1 != *"//"* ]] \
+    && [[ $1 != *"@{"* ]] \
+    && [[ $1 != *.lock ]]
+}
+
+validate_commit_sha() {
+  [[ $1 =~ ^[0-9a-fA-F]{40}$ ]]
+}
+
+validate_metrics_path() {
+  local path=$1
+  [[ -n "$path" ]] || return 1
+  [[ "$path" == /* ]] || return 1
+  [[ "$path" == *.prom ]] || return 1
+  [[ "$path" != *[[:cntrl:][:space:]\`\\\'\"\;\|\<\>\(\)\{\}]* ]] || return 1
+  [[ "$path" != *"/../"* && "$path" != */.. && "$path" != *"/./"* ]] || return 1
+  return 0
+}
+
+validate_usb_uas_list() {
+  [[ $1 =~ ^[0-9a-fA-F]{4}:[0-9a-fA-F]{4}(:[a-z]+)?(,[0-9a-fA-F]{4}:[0-9a-fA-F]{4}(:[a-z]+)?)*$ ]]
+}
+
 # Locale identifier: `ll_CC[.encoding][@modifier]` (POSIX locale format).
 # Rejects whitespace, newlines, shell metacharacters, and path traversal
 # so the value can be safely written into /etc/default/locale (which is

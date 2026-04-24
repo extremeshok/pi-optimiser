@@ -3,7 +3,7 @@
 # Coded by Adrian Jon Kriel :: admin@extremeshok.com
 # Project home: https://github.com/extremeshok/pi-optimiser
 # ======================================================================
-# pi-optimiser.sh :: version 9.4.4
+# pi-optimiser.sh :: version 9.4.5
 #======================================================================
 # One-shot optimiser for Raspberry Pi OS desktops. Key capabilities:
 #   - Removes bundled bloatware and trims apt caches for a lean install
@@ -35,7 +35,7 @@ fi
 
 SCRIPT_NAME=$(basename "$0")
 readonly SCRIPT_NAME
-SCRIPT_VERSION="9.4.4"
+SCRIPT_VERSION="9.4.5"
 readonly SCRIPT_VERSION
 
 # Globals consumed by sourced lib/util/*.sh modules; shellcheck cannot
@@ -438,7 +438,7 @@ Options:
   --disable-ipv6         Disable IPv6 via sysctl (leaves a restorable drop-in)
   --usb-uas-quirks       Auto-detect known-bad USB-SATA adapters and disable UAS
   --usb-uas-extra <list> Extra VID:PID pairs for UAS quirks (comma-separated)
-  --install-hailo        Pi 5: install Hailo NPU drivers for the AI Kit / AI HAT+
+  --install-hailo        Pi 5: install Hailo NPU drivers for Hailo HAT hardware
   --profile <name>       Apply flag bundle: kiosk | server | desktop | headless-iot
   --report               Print a human-readable state report and exit
   --snapshot             Tar key config files to /etc/pi-optimiser/snapshots and exit
@@ -557,6 +557,33 @@ should_run_task() {
   return 0
 }
 
+# Return success when a task's gate is active. Most tasks have one
+# gate_var, but a few represent multiple inputs in one task file.
+pi_task_gate_active() {
+  local task=$1
+  case "$task" in
+    ssh_import)
+      [[ -n "${SSH_IMPORT_GITHUB:-}" || -n "${SSH_IMPORT_URL:-}" ]]
+      return
+      ;;
+    wifi_bt_power)
+      [[ ${WIFI_POWERSAVE_OFF:-0} -ne 0 || ${DISABLE_BLUETOOTH:-0} -ne 0 ]]
+      return
+      ;;
+    zram)
+      [[ ${INSTALL_ZRAM:-0} -ne 0 || "${ZRAM_ALGO_OVERRIDE:-}" == "disabled" ]]
+      return
+      ;;
+  esac
+  local gate=${PI_TASK_GATE_VAR[$task]:-}
+  if [[ -n "$gate" ]]; then
+    local val="${!gate:-}"
+    [[ -n "$val" && "$val" != "0" ]]
+    return
+  fi
+  return 0
+}
+
 # Run a registered task with idempotent state tracking. Interprets the
 # task runner's exit code: 0=done (mark completed), 2=skipped (no state
 # change), anything else=failed.
@@ -618,14 +645,11 @@ apply_once() {
     # Consult the task's gate_var/skip_var metadata (set by
     # pi_task_register) so dry-run can tell "opt-in not requested" and
     # "explicitly suppressed" apart from "would actually run".
-    local _gate=${PI_TASK_GATE_VAR[$task]:-}
-    if [[ -n "$_gate" ]]; then
-      local _gate_val="${!_gate:-}"
-      if [[ -z "$_gate_val" || "$_gate_val" == "0" ]]; then
-        log_info "[dry-run] $task would skip — $_gate is unset"
-        SUMMARY_SKIPPED+=("$task (not requested)")
-        return 0
-      fi
+    if ! pi_task_gate_active "$task"; then
+      local _gate=${PI_TASK_GATE_VAR[$task]:-request}
+      log_info "[dry-run] $task would skip — $_gate is unset"
+      SUMMARY_SKIPPED+=("$task (not requested)")
+      return 0
     fi
     local _skip=${PI_TASK_SKIP_VAR[$task]:-}
     if [[ -n "$_skip" ]]; then
@@ -985,6 +1009,10 @@ parse_args() {
       --usb-uas-quirks)      USB_UAS_QUIRKS=1 ;;
       --usb-uas-extra)
         if [[ $# -lt 2 ]]; then echo "--usb-uas-extra requires a VID:PID[,VID:PID] list" >&2; exit 1; fi
+        if ! validate_usb_uas_list "$2"; then
+          echo "--usb-uas-extra: invalid VID:PID list '$2'" >&2
+          exit 1
+        fi
         USB_UAS_EXTRA=$2; USB_UAS_QUIRKS=1; shift
         ;;
       --install-hailo)       INSTALL_HAILO=1 ;;
@@ -1082,6 +1110,10 @@ parse_args() {
         ;;
       --metrics-path)
         if [[ $# -lt 2 ]]; then echo "--metrics-path requires a path" >&2; exit 1; fi
+        if ! validate_metrics_path "$2"; then
+          echo "--metrics-path: expected an absolute .prom path without whitespace or traversal" >&2
+          exit 1
+        fi
         PI_METRICS_PATH=$2; shift
         ;;
       --diff)

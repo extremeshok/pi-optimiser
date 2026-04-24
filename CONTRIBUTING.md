@@ -37,9 +37,8 @@ Maintainers will check for:
 - Clear documentation updates accompanying user-visible changes.
 
 Automated contributors should also read [AGENTS.md](AGENTS.md), which
-documents the task-file API, the golden rules (no emoji, no AI
-branding, no co-author trailers, no schema breakage without a
-migration), and the release process. [TODO.md](TODO.md) has the
-current backlog.
+documents the task-file API, the branding and authorship rules, schema
+migration requirements, and the release process. [TODO.md](TODO.md)
+has the current backlog.
 
 Happy hacking.

@@ -16,6 +16,15 @@ pi_task_register wifi_bt_power \
   flags="--wifi-powersave-off,--disable-bluetooth" \
   gate_var=WIFI_POWERSAVE_OFF
 
+pi_wifi_bt_power_value_changed() {
+  local stored_wifi stored_bt
+  stored_wifi=$(read_json_field "$CONFIG_OPTIMISER_STATE" "network.wifi_powersave_off" 2>/dev/null || echo "0")
+  stored_bt=$(read_json_field "$CONFIG_OPTIMISER_STATE" "network.bluetooth_disabled" 2>/dev/null || echo "0")
+  [[ ${WIFI_POWERSAVE_OFF:-0} -eq 1 && "$stored_wifi" != "1" ]] && return 0
+  [[ ${DISABLE_BLUETOOTH:-0} -eq 1 && "$stored_bt" != "1" ]] && return 0
+  return 1
+}
+
 run_wifi_bt_power() {
   local did=0
 

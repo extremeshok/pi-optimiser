@@ -163,6 +163,7 @@ pi_show_effective_config() {
     V_DOCKER_BUILDX="${DOCKER_BUILDX_MULTIARCH:-0}" \
     V_DOCKER_CGV2="${DOCKER_CGROUPV2:-0}" \
     V_WIREGUARD="${INSTALL_WIREGUARD:-0}" \
+    V_ALLOW_BOTH_VPN="${ALLOW_BOTH_VPN:-0}" \
     V_ZRAM="${INSTALL_ZRAM:-0}" \
     V_ZRAM_ALGO="${ZRAM_ALGO_OVERRIDE:-}" \
     V_NODE_EXPORTER="${INSTALL_NODE_EXPORTER:-0}" \
@@ -170,6 +171,10 @@ pi_show_effective_config() {
     V_CLI_MODERN="${INSTALL_CLI_MODERN:-0}" \
     V_NET_DIAG="${INSTALL_NET_DIAG:-0}" \
     V_DNS_CACHE="${ENABLE_DNS_CACHE:-0}" \
+    V_PI_CONNECT="${INSTALL_PI_CONNECT:-0}" \
+    V_HAILO="${INSTALL_HAILO:-0}" \
+    V_CHRONY="${INSTALL_CHRONY:-0}" \
+    V_DISABLE_IPV6="${DISABLE_IPV6:-0}" \
     V_OC="${REQUEST_OC_CONSERVATIVE:-0}" \
     V_UNDERCLOCK="${REQUEST_UNDERCLOCK:-0}" \
     V_WATCHDOG="${INSTALL_WATCHDOG:-0}" \
@@ -177,13 +182,22 @@ pi_show_effective_config() {
     V_PCIE3="${INSTALL_PCIE_GEN3:-0}" \
     V_WIFI="${WIFI_POWERSAVE_OFF:-0}" \
     V_DISBT="${DISABLE_BLUETOOTH:-0}" \
+    V_QUIET_BOOT="${QUIET_BOOT:-0}" \
+    V_DISABLE_LEDS="${DISABLE_LEDS:-0}" \
+    V_NVME_TUNE="${NVME_TUNE:-0}" \
+    V_HEADLESS_GPU="${HEADLESS_GPU_MEM:-0}" \
+    V_USB_UAS="${USB_UAS_QUIRKS:-0}" \
+    V_USB_UAS_EXTRA="${USB_UAS_EXTRA:-}" \
     V_FW_UPDATE="${FIRMWARE_UPDATE:-0}" \
     V_EEPROM="${EEPROM_UPDATE:-0}" \
+    V_POWER_OFF_HALT="${POWER_OFF_HALT:-0}" \
     V_SECURE_SSH="${SECURE_SSH:-0}" \
+    V_FIREWALL="${INSTALL_FIREWALL:-0}" \
     V_HOSTNAME="${REQUESTED_HOSTNAME:-}" \
     V_TZ="${REQUESTED_TIMEZONE:-}" \
     V_LOCALE="${REQUESTED_LOCALE:-}" \
     V_KEEP_BLANK="${KEEP_SCREEN_BLANKING:-0}" \
+    V_REMOVE_CUPS="${REMOVE_CUPS:-0}" \
     V_PROXY="${PROXY_BACKEND:-}" \
     V_PROFILE="${PI_PROFILE:-}" \
     V_DRYRUN="${DRY_RUN:-0}" \
@@ -208,6 +222,7 @@ out = {
     "integrations": {
         "tailscale": b("V_TAILSCALE"),
         "wireguard": b("V_WIREGUARD"),
+        "allow_both_vpn": b("V_ALLOW_BOTH_VPN"),
         "docker": {
             "enabled": b("V_DOCKER"),
             "buildx_multiarch": b("V_DOCKER_BUILDX"),
@@ -220,6 +235,10 @@ out = {
         "cli_modern": b("V_CLI_MODERN"),
         "net_diag": b("V_NET_DIAG"),
         "dns_cache": b("V_DNS_CACHE"),
+        "pi_connect": b("V_PI_CONNECT"),
+        "hailo": b("V_HAILO"),
+        "chrony": b("V_CHRONY"),
+        "disable_ipv6": b("V_DISABLE_IPV6"),
     },
     "hardware": {
         "overclock_conservative": b("V_OC"),
@@ -229,13 +248,21 @@ out = {
         "watchdog": b("V_WATCHDOG"),
         "wifi_powersave_off": b("V_WIFI"),
         "disable_bluetooth": b("V_DISBT"),
+        "quiet_boot": b("V_QUIET_BOOT"),
+        "disable_leds": b("V_DISABLE_LEDS"),
+        "nvme_tune": b("V_NVME_TUNE"),
+        "headless_gpu_mem": b("V_HEADLESS_GPU"),
+        "usb_uas_quirks": b("V_USB_UAS"),
+        "usb_uas_extra": s("V_USB_UAS_EXTRA"),
     },
     "firmware": {
         "firmware_update": b("V_FW_UPDATE"),
         "eeprom_update": b("V_EEPROM"),
+        "power_off_halt": b("V_POWER_OFF_HALT"),
     },
     "security": {
         "secure_ssh": b("V_SECURE_SSH"),
+        "firewall": b("V_FIREWALL"),
         "ssh_import_github": s("V_GH"),
         "ssh_import_url": s("V_URL"),
     },
@@ -244,6 +271,7 @@ out = {
         "timezone": s("V_TZ"),
         "locale": s("V_LOCALE"),
         "keep_screen_blanking": b("V_KEEP_BLANK"),
+        "remove_cups": b("V_REMOVE_CUPS"),
     },
     "metrics": {
         "enabled": b("V_METRICS_ENABLED"),
@@ -272,6 +300,7 @@ Runtime
 Integrations
   tailscale           ${INSTALL_TAILSCALE:-0}
   wireguard           ${INSTALL_WIREGUARD:-0}
+  allow_both_vpn      ${ALLOW_BOTH_VPN:-0}
   docker              ${INSTALL_DOCKER:-0}
     buildx-multiarch  ${DOCKER_BUILDX_MULTIARCH:-0}
     cgroup-v2         ${DOCKER_CGROUPV2:-0}
@@ -282,6 +311,10 @@ Integrations
   cli_bundle_modern   ${INSTALL_CLI_MODERN:-0}
   net_diag_bundle     ${INSTALL_NET_DIAG:-0}
   dns_cache           ${ENABLE_DNS_CACHE:-0}
+  pi_connect          ${INSTALL_PI_CONNECT:-0}
+  hailo               ${INSTALL_HAILO:-0}
+  chrony              ${INSTALL_CHRONY:-0}
+  disable_ipv6        ${DISABLE_IPV6:-0}
 
 Hardware / clocks
   overclock           ${REQUEST_OC_CONSERVATIVE:-0}
@@ -294,13 +327,21 @@ Hardware / clocks
   initial_turbo       ${INITIAL_TURBO:-<unset>}
   wifi_powersave_off  ${WIFI_POWERSAVE_OFF:-0}
   disable_bluetooth   ${DISABLE_BLUETOOTH:-0}
+  quiet_boot          ${QUIET_BOOT:-0}
+  disable_leds        ${DISABLE_LEDS:-0}
+  nvme_tune           ${NVME_TUNE:-0}
+  headless_gpu_mem    ${HEADLESS_GPU_MEM:-0}
+  usb_uas_quirks      ${USB_UAS_QUIRKS:-0}
+  usb_uas_extra       ${USB_UAS_EXTRA:-<unset>}
 
 Firmware
   firmware-update     ${FIRMWARE_UPDATE:-0}
   eeprom-update       ${EEPROM_UPDATE:-0}
+  power-off-halt      ${POWER_OFF_HALT:-0}
 
 Security
   secure_ssh          ${SECURE_SSH:-0}
+  firewall            ${INSTALL_FIREWALL:-0}
   ssh_import_github   ${SSH_IMPORT_GITHUB:-<unset>}
   ssh_import_url      ${SSH_IMPORT_URL:-<unset>}
 
@@ -309,6 +350,7 @@ System
   timezone            ${REQUESTED_TIMEZONE:-<unset>}
   locale              ${REQUESTED_LOCALE:-<unset>}
   keep_screen_blanking ${KEEP_SCREEN_BLANKING:-0}
+  remove_cups         ${REMOVE_CUPS:-0}
 
 Framework
   metrics_enabled     ${PI_METRICS_ENABLED:-1}

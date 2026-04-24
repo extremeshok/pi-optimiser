@@ -20,6 +20,10 @@ PI_CONFIG_DEFAULT="/etc/pi-optimiser/config.yaml"
 
 pi_config_save() {
   local path=${1:-$PI_CONFIG_DEFAULT}
+  local _frozen_ids=""
+  if declare -p PI_FROZEN_TASKS >/dev/null 2>&1 && (( ${#PI_FROZEN_TASKS[@]} > 0 )); then
+    _frozen_ids="${!PI_FROZEN_TASKS[*]}"
+  fi
   mkdir -p "$(dirname "$path")"
   PI_CONFIG_PATH="$path" \
   PI_PROFILE_VAL="${PI_PROFILE:-custom}" \
@@ -28,6 +32,7 @@ pi_config_save() {
   V_DOCKER_BUILDX="${DOCKER_BUILDX_MULTIARCH:-0}" \
   V_DOCKER_CGV2="${DOCKER_CGROUPV2:-0}" \
   V_WIREGUARD="${INSTALL_WIREGUARD:-0}" \
+  V_ALLOW_BOTH_VPN="${ALLOW_BOTH_VPN:-0}" \
   V_ZRAM="${INSTALL_ZRAM:-0}" \
   V_ZRAM_ALGO="${ZRAM_ALGO_OVERRIDE:-}" \
   V_NODE_EXPORTER="${INSTALL_NODE_EXPORTER:-0}" \
@@ -35,6 +40,10 @@ pi_config_save() {
   V_CLI_MODERN="${INSTALL_CLI_MODERN:-0}" \
   V_NET_DIAG="${INSTALL_NET_DIAG:-0}" \
   V_DNS_CACHE="${ENABLE_DNS_CACHE:-0}" \
+  V_PI_CONNECT="${INSTALL_PI_CONNECT:-0}" \
+  V_HAILO="${INSTALL_HAILO:-0}" \
+  V_CHRONY="${INSTALL_CHRONY:-0}" \
+  V_DISABLE_IPV6="${DISABLE_IPV6:-0}" \
   V_OC="${REQUEST_OC_CONSERVATIVE:-0}" \
   V_UNDERCLOCK="${REQUEST_UNDERCLOCK:-0}" \
   V_WATCHDOG="${INSTALL_WATCHDOG:-0}" \
@@ -45,16 +54,28 @@ pi_config_save() {
   V_TURBO="${INITIAL_TURBO:-}" \
   V_WIFI="${WIFI_POWERSAVE_OFF:-0}" \
   V_DISBT="${DISABLE_BLUETOOTH:-0}" \
+  V_QUIET_BOOT="${QUIET_BOOT:-0}" \
+  V_DISABLE_LEDS="${DISABLE_LEDS:-0}" \
+  V_NVME_TUNE="${NVME_TUNE:-0}" \
+  V_HEADLESS_GPU="${HEADLESS_GPU_MEM:-0}" \
+  V_USB_UAS="${USB_UAS_QUIRKS:-0}" \
+  V_USB_UAS_EXTRA="${USB_UAS_EXTRA:-}" \
   V_FW_UPDATE="${FIRMWARE_UPDATE:-0}" \
   V_EEPROM="${EEPROM_UPDATE:-0}" \
+  V_POWER_OFF_HALT="${POWER_OFF_HALT:-0}" \
   V_SECURE_SSH="${SECURE_SSH:-0}" \
+  V_FIREWALL="${INSTALL_FIREWALL:-0}" \
   V_GH="${SSH_IMPORT_GITHUB:-}" \
   V_URL="${SSH_IMPORT_URL:-}" \
   V_HOSTNAME="${REQUESTED_HOSTNAME:-}" \
   V_TZ="${REQUESTED_TIMEZONE:-}" \
   V_LOCALE="${REQUESTED_LOCALE:-}" \
   V_KEEP_BLANK="${KEEP_SCREEN_BLANKING:-0}" \
+  V_REMOVE_CUPS="${REMOVE_CUPS:-0}" \
   V_PROXY="${PROXY_BACKEND:-}" \
+  V_METRICS_ENABLED="${PI_METRICS_ENABLED:-1}" \
+  V_METRICS_PATH="${PI_METRICS_PATH:-}" \
+  V_FROZEN="$_frozen_ids" \
   run_python <<'PY'
 import os
 from pathlib import Path
@@ -76,6 +97,7 @@ lines.append(f'profile: {s("PI_PROFILE_VAL") or "custom"}')
 lines.append("integrations:")
 lines.append(f'  tailscale: {b("V_TAILSCALE")}')
 lines.append(f'  wireguard: {b("V_WIREGUARD")}')
+lines.append(f'  allow_both_vpn: {b("V_ALLOW_BOTH_VPN")}')
 lines.append("  docker:")
 lines.append(f'    enabled: {b("V_DOCKER")}')
 lines.append(f'    buildx_multiarch: {b("V_DOCKER_BUILDX")}')
@@ -89,6 +111,10 @@ lines.append(f'  smartmontools: {b("V_SMARTMON")}')
 lines.append(f'  cli_modern: {b("V_CLI_MODERN")}')
 lines.append(f'  net_diag: {b("V_NET_DIAG")}')
 lines.append(f'  dns_cache: {b("V_DNS_CACHE")}')
+lines.append(f'  pi_connect: {b("V_PI_CONNECT")}')
+lines.append(f'  hailo: {b("V_HAILO")}')
+lines.append(f'  chrony: {b("V_CHRONY")}')
+lines.append(f'  disable_ipv6: {b("V_DISABLE_IPV6")}')
 lines.append("hardware:")
 lines.append(f'  overclock_conservative: {b("V_OC")}')
 lines.append(f'  underclock: {b("V_UNDERCLOCK")}')
@@ -100,11 +126,19 @@ lines.append(f'  temp_soft_limit: "{s("V_TEMP_SOFT")}"')
 lines.append(f'  initial_turbo: "{s("V_TURBO")}"')
 lines.append(f'  wifi_powersave_off: {b("V_WIFI")}')
 lines.append(f'  disable_bluetooth: {b("V_DISBT")}')
+lines.append(f'  quiet_boot: {b("V_QUIET_BOOT")}')
+lines.append(f'  disable_leds: {b("V_DISABLE_LEDS")}')
+lines.append(f'  nvme_tune: {b("V_NVME_TUNE")}')
+lines.append(f'  headless_gpu_mem: {b("V_HEADLESS_GPU")}')
+lines.append(f'  usb_uas_quirks: {b("V_USB_UAS")}')
+lines.append(f'  usb_uas_extra: "{s("V_USB_UAS_EXTRA")}"')
 lines.append("firmware:")
 lines.append(f'  firmware_update: {b("V_FW_UPDATE")}')
 lines.append(f'  eeprom_update: {b("V_EEPROM")}')
+lines.append(f'  power_off_halt: {b("V_POWER_OFF_HALT")}')
 lines.append("security:")
 lines.append(f'  secure_ssh: {b("V_SECURE_SSH")}')
+lines.append(f'  firewall: {b("V_FIREWALL")}')
 lines.append(f'  ssh_import_github: "{s("V_GH")}"')
 lines.append(f'  ssh_import_url: "{s("V_URL")}"')
 lines.append("system:")
@@ -112,6 +146,15 @@ lines.append(f'  hostname: "{s("V_HOSTNAME")}"')
 lines.append(f'  timezone: "{s("V_TZ")}"')
 lines.append(f'  locale: "{s("V_LOCALE")}"')
 lines.append(f'  keep_screen_blanking: {b("V_KEEP_BLANK")}')
+lines.append(f'  remove_cups: {b("V_REMOVE_CUPS")}')
+lines.append("metrics:")
+lines.append(f'  enabled: {b("V_METRICS_ENABLED")}')
+lines.append(f'  path: "{s("V_METRICS_PATH")}"')
+frozen = sorted(x for x in os.environ.get("V_FROZEN", "").split() if x)
+if frozen:
+    lines.append("freeze_tasks: [" + ", ".join(frozen) + "]")
+else:
+    lines.append("freeze_tasks: []")
 
 path.write_text("\n".join(lines) + "\n")
 os.chmod(path, 0o644)
@@ -205,6 +248,7 @@ except Exception as e:
     print(f"echo 'pi-optimiser: failed to parse {path}: {e}' >&2; return 1", file=sys.stdout)
     sys.exit(0)
 
+import re
 import shlex
 
 def bv(value): return "1" if str(value).lower() in ("true","1","yes","on") else "0"
@@ -234,47 +278,99 @@ def get_str(d, *keys, default=""):
         return default
     return s
 
+def valid_metrics_path(path):
+    return (
+        path.startswith("/")
+        and path.endswith(".prom")
+        and not re.search(r"[\s\0-\037`\\'\";|<>(){}]", path)
+        and "/../" not in path
+        and not path.endswith("/..")
+        and "/./" not in path
+    )
+
+def valid_usb_uas_list(value):
+    return re.match(
+        r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{4}(:[a-z]+)?"
+        r"(,[0-9a-fA-F]{4}:[0-9a-fA-F]{4}(:[a-z]+)?)*$",
+        value,
+    ) is not None
+
 out = []
+def has(d, *keys):
+    cur = d
+    for k in keys:
+        if isinstance(cur, dict) and k in cur:
+            cur = cur[k]
+        else:
+            return False
+    return True
+
+def emit_bool(var, d, *keys):
+    if has(d, *keys):
+        out.append(f'{var}={bv(get(d, *keys))}')
+
+def emit_str(var, d, *keys):
+    if has(d, *keys):
+        out.append(f'{var}={sv(get_str(d, *keys))}')
+
+profile = get_str(data, "profile")
+if profile:
+    allowed_profiles = {"kiosk", "server", "desktop", "headless-iot", "custom"}
+    if profile not in allowed_profiles:
+        out.append(f'echo {sv("pi-optimiser: unknown profile in config: " + profile)} >&2')
+        out.append("return 1")
+    else:
+        out.append(f'PI_PROFILE={sv(profile)}')
+        if profile != "custom":
+            out.append('if declare -F pi_apply_profile >/dev/null 2>&1; then pi_apply_profile "$PI_PROFILE" >/dev/null; fi')
+
 i = data.get("integrations", {})
-out.append(f'INSTALL_TAILSCALE={bv(get(i, "tailscale"))}')
-out.append(f'INSTALL_WIREGUARD={bv(get(i, "wireguard"))}')
-out.append(f'ALLOW_BOTH_VPN={bv(get(i, "allow_both_vpn"))}')
+emit_bool("INSTALL_TAILSCALE", i, "tailscale")
+emit_bool("INSTALL_WIREGUARD", i, "wireguard")
+emit_bool("ALLOW_BOTH_VPN", i, "allow_both_vpn")
 docker = get(i, "docker", default={})
-out.append(f'INSTALL_DOCKER={bv(get(docker, "enabled"))}')
-out.append(f'DOCKER_BUILDX_MULTIARCH={bv(get(docker, "buildx_multiarch"))}')
-out.append(f'DOCKER_CGROUPV2={bv(get(docker, "cgroup_v2"))}')
+emit_bool("INSTALL_DOCKER", docker, "enabled")
+emit_bool("DOCKER_BUILDX_MULTIARCH", docker, "buildx_multiarch")
+emit_bool("DOCKER_CGROUPV2", docker, "cgroup_v2")
 zram = get(i, "zram", default={})
-out.append(f'INSTALL_ZRAM={bv(get(zram, "enabled"))}')
-algo = get_str(zram, "algo", default="")
-if algo and algo != "lz4":
-    out.append(f'ZRAM_ALGO_OVERRIDE={sv(algo)}')
-out.append(f'PROXY_BACKEND={sv(get_str(i, "proxy_backend"))}')
-out.append(f'INSTALL_NODE_EXPORTER={bv(get(i, "node_exporter"))}')
-out.append(f'INSTALL_SMARTMONTOOLS={bv(get(i, "smartmontools"))}')
-out.append(f'INSTALL_CLI_MODERN={bv(get(i, "cli_modern"))}')
-out.append(f'INSTALL_NET_DIAG={bv(get(i, "net_diag"))}')
-out.append(f'ENABLE_DNS_CACHE={bv(get(i, "dns_cache"))}')
-out.append(f'INSTALL_PI_CONNECT={bv(get(i, "pi_connect"))}')
-out.append(f'INSTALL_HAILO={bv(get(i, "hailo"))}')
-out.append(f'INSTALL_CHRONY={bv(get(i, "chrony"))}')
-out.append(f'DISABLE_IPV6={bv(get(i, "disable_ipv6"))}')
+emit_bool("INSTALL_ZRAM", zram, "enabled")
+if has(zram, "algo"):
+    algo = get_str(zram, "algo", default="")
+    if algo and algo != "lz4":
+        out.append(f'ZRAM_ALGO_OVERRIDE={sv(algo)}')
+    elif algo == "lz4":
+        out.append('ZRAM_ALGO_OVERRIDE=""')
+emit_str("PROXY_BACKEND", i, "proxy_backend")
+emit_bool("INSTALL_NODE_EXPORTER", i, "node_exporter")
+emit_bool("INSTALL_SMARTMONTOOLS", i, "smartmontools")
+emit_bool("INSTALL_CLI_MODERN", i, "cli_modern")
+emit_bool("INSTALL_NET_DIAG", i, "net_diag")
+emit_bool("ENABLE_DNS_CACHE", i, "dns_cache")
+emit_bool("INSTALL_PI_CONNECT", i, "pi_connect")
+emit_bool("INSTALL_HAILO", i, "hailo")
+emit_bool("INSTALL_CHRONY", i, "chrony")
+emit_bool("DISABLE_IPV6", i, "disable_ipv6")
 
 h = data.get("hardware", {})
-out.append(f'REQUEST_OC_CONSERVATIVE={bv(get(h, "overclock_conservative"))}')
-out.append(f'REQUEST_UNDERCLOCK={bv(get(h, "underclock"))}')
-out.append(f'INSTALL_PI5_FAN_PROFILE={bv(get(h, "pi5_fan_profile"))}')
-out.append(f'INSTALL_PCIE_GEN3={bv(get(h, "pcie_gen3"))}')
-out.append(f'INSTALL_WATCHDOG={bv(get(h, "watchdog"))}')
-out.append(f'WIFI_POWERSAVE_OFF={bv(get(h, "wifi_powersave_off"))}')
-out.append(f'DISABLE_BLUETOOTH={bv(get(h, "disable_bluetooth"))}')
-out.append(f'QUIET_BOOT={bv(get(h, "quiet_boot"))}')
-out.append(f'DISABLE_LEDS={bv(get(h, "disable_leds"))}')
-out.append(f'NVME_TUNE={bv(get(h, "nvme_tune"))}')
-out.append(f'HEADLESS_GPU_MEM={bv(get(h, "headless_gpu_mem"))}')
-out.append(f'USB_UAS_QUIRKS={bv(get(h, "usb_uas_quirks"))}')
+emit_bool("REQUEST_OC_CONSERVATIVE", h, "overclock_conservative")
+emit_bool("REQUEST_UNDERCLOCK", h, "underclock")
+emit_bool("INSTALL_PI5_FAN_PROFILE", h, "pi5_fan_profile")
+emit_bool("INSTALL_PCIE_GEN3", h, "pcie_gen3")
+emit_bool("INSTALL_WATCHDOG", h, "watchdog")
+emit_bool("WIFI_POWERSAVE_OFF", h, "wifi_powersave_off")
+emit_bool("DISABLE_BLUETOOTH", h, "disable_bluetooth")
+emit_bool("QUIET_BOOT", h, "quiet_boot")
+emit_bool("DISABLE_LEDS", h, "disable_leds")
+emit_bool("NVME_TUNE", h, "nvme_tune")
+emit_bool("HEADLESS_GPU_MEM", h, "headless_gpu_mem")
+emit_bool("USB_UAS_QUIRKS", h, "usb_uas_quirks")
 _uas_extra = get_str(h, "usb_uas_extra")
 if _uas_extra:
-    out.append(f'USB_UAS_EXTRA={sv(_uas_extra)}; USB_UAS_QUIRKS=1')
+    if not valid_usb_uas_list(_uas_extra):
+        out.append('echo "pi-optimiser: invalid usb_uas_extra in config" >&2')
+        out.append("return 1")
+    else:
+        out.append(f'USB_UAS_EXTRA={sv(_uas_extra)}; USB_UAS_QUIRKS=1')
 for v in ("temp_limit", "temp_soft_limit", "initial_turbo"):
     val = get(h, v)
     if val:
@@ -282,22 +378,22 @@ for v in ("temp_limit", "temp_soft_limit", "initial_turbo"):
         out.append(f'{var}={sv(val)}; THERMAL_THRESHOLDS_SET=1')
 
 f = data.get("firmware", {})
-out.append(f'FIRMWARE_UPDATE={bv(get(f, "firmware_update"))}')
-out.append(f'EEPROM_UPDATE={bv(get(f, "eeprom_update"))}')
-out.append(f'POWER_OFF_HALT={bv(get(f, "power_off_halt"))}')
+emit_bool("FIRMWARE_UPDATE", f, "firmware_update")
+emit_bool("EEPROM_UPDATE", f, "eeprom_update")
+emit_bool("POWER_OFF_HALT", f, "power_off_halt")
 
 s = data.get("security", {})
-out.append(f'SECURE_SSH={bv(get(s, "secure_ssh"))}')
-out.append(f'SSH_IMPORT_GITHUB={sv(get_str(s, "ssh_import_github"))}')
-out.append(f'SSH_IMPORT_URL={sv(get_str(s, "ssh_import_url"))}')
-out.append(f'INSTALL_FIREWALL={bv(get(s, "firewall"))}')
+emit_bool("SECURE_SSH", s, "secure_ssh")
+emit_str("SSH_IMPORT_GITHUB", s, "ssh_import_github")
+emit_str("SSH_IMPORT_URL", s, "ssh_import_url")
+emit_bool("INSTALL_FIREWALL", s, "firewall")
 
 sy = data.get("system", {})
-out.append(f'REQUESTED_HOSTNAME={sv(get_str(sy, "hostname"))}')
-out.append(f'REQUESTED_TIMEZONE={sv(get_str(sy, "timezone"))}')
-out.append(f'REQUESTED_LOCALE={sv(get_str(sy, "locale"))}')
-out.append(f'KEEP_SCREEN_BLANKING={bv(get(sy, "keep_screen_blanking"))}')
-out.append(f'REMOVE_CUPS={bv(get(sy, "remove_cups"))}')
+emit_str("REQUESTED_HOSTNAME", sy, "hostname")
+emit_str("REQUESTED_TIMEZONE", sy, "timezone")
+emit_str("REQUESTED_LOCALE", sy, "locale")
+emit_bool("KEEP_SCREEN_BLANKING", sy, "keep_screen_blanking")
+emit_bool("REMOVE_CUPS", sy, "remove_cups")
 
 # Prometheus metrics opt-in + optional path override.
 m = data.get("metrics", {})
@@ -307,14 +403,17 @@ if isinstance(m, dict):
         out.append('PI_METRICS_ENABLED=0')
     mpath = get_str(m, "path")
     if mpath:
-        out.append(f'PI_METRICS_PATH={sv(mpath)}')
+        if not valid_metrics_path(mpath):
+            out.append('echo "pi-optimiser: invalid metrics path in config" >&2')
+            out.append("return 1")
+        else:
+            out.append(f'PI_METRICS_PATH={sv(mpath)}')
 
 # Per-task freeze. Supports both inline and multi-line YAML:
 #   freeze_tasks: [fstab, zram]         # inline → string "[fstab, zram]"
 #   freeze_tasks:                        # multi-line → dict with keys
 #     - fstab                            #   "- fstab" and "- zram"
 #     - zram                             #   (our tiny parser doesn't grok lists)
-import re
 frozen_ids = []
 frozen = data.get("freeze_tasks", "")
 if isinstance(frozen, str) and frozen.strip():
@@ -329,9 +428,13 @@ for fid in frozen_ids:
 print("\n".join(out))
 PY
   ) || return 1
-  # The emitted script contains only `VAR='shell-quoted value'` lines,
-  # so eval is safe despite its reputation.
-  # shellcheck disable=SC2086
-  eval "$script"
+  # The emitted script contains only shell-quoted assignments plus
+  # trusted framework calls such as pi_apply_profile, so eval is safe
+  # despite its reputation.
+  local eval_rc=0
+  eval "$script" || eval_rc=$?
+  if [[ $eval_rc -ne 0 ]]; then
+    return "$eval_rc"
+  fi
   log_info "Loaded config from $path"
 }

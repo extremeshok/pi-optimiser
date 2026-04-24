@@ -145,6 +145,20 @@ _pi_tui_welcome() {
 # this invocation. Handles both binary (INSTALL_TAILSCALE=1) and
 # string (REQUESTED_HOSTNAME=pi5) gates.
 _pi_tui_gate_active() {
+  case "$1" in
+    ssh_import)
+      [[ -n "${SSH_IMPORT_GITHUB:-}" || -n "${SSH_IMPORT_URL:-}" ]]
+      return
+      ;;
+    wifi_bt_power)
+      [[ ${WIFI_POWERSAVE_OFF:-0} -ne 0 || ${DISABLE_BLUETOOTH:-0} -ne 0 ]]
+      return
+      ;;
+    zram)
+      [[ ${INSTALL_ZRAM:-0} -ne 0 || "${ZRAM_ALGO_OVERRIDE:-}" == "disabled" ]]
+      return
+      ;;
+  esac
   local gate=${PI_TASK_GATE_VAR[$1]:-}
   [[ -z "$gate" ]] && return 1
   local val=${!gate:-}
@@ -395,12 +409,32 @@ _pi_tui_apply() {
   # Value-typed gate_vars (hostnames, timezones, URLs) are set via the
   # "values" forms menu; we never coerce them to "1".
   local tid gate
+  local _preserve_wifi=0 _preserve_bt=0 _preserve_zram_disabled=0
+  if [[ -n "${PI_TUI_SELECTED[wifi_bt_power]:-}" ]]; then
+    _preserve_wifi=${WIFI_POWERSAVE_OFF:-0}
+    _preserve_bt=${DISABLE_BLUETOOTH:-0}
+  fi
+  if [[ -n "${PI_TUI_SELECTED[zram]:-}" && "${ZRAM_ALGO_OVERRIDE:-}" == "disabled" ]]; then
+    _preserve_zram_disabled=1
+  fi
   # For every category the operator visited, reset that category's
   # binary gates to 0 first. Ticked items in the loop below then
   # flip back to 1. Un-visited categories keep their state so
   # saving YAML after a narrow edit doesn't clobber prior opt-ins.
   for tid in "${PI_TASK_ORDER[@]}"; do
     [[ -n "${PI_TUI_VISITED_CATEGORIES[${PI_TASK_CATEGORY[$tid]}]:-}" ]] || continue
+    case "$tid" in
+      wifi_bt_power)
+        WIFI_POWERSAVE_OFF=0
+        DISABLE_BLUETOOTH=0
+        continue
+        ;;
+      zram)
+        INSTALL_ZRAM=0
+        ZRAM_ALGO_OVERRIDE=""
+        continue
+        ;;
+    esac
     gate=${PI_TASK_GATE_VAR[$tid]:-}
     case $gate in
       ""|REQUESTED_HOSTNAME|REQUESTED_TIMEZONE|REQUESTED_LOCALE|PROXY_BACKEND|SSH_IMPORT_GITHUB|SSH_IMPORT_URL)
@@ -415,6 +449,30 @@ _pi_tui_apply() {
   for tid in "${PI_TASK_ORDER[@]}"; do
     [[ -n "${PI_TUI_SELECTED[$tid]:-}" ]] || continue
     ONLY_TASKS+=("$tid")
+    case "$tid" in
+      wifi_bt_power)
+        if [[ ${WIFI_POWERSAVE_OFF:-0} -eq 0 && ${DISABLE_BLUETOOTH:-0} -eq 0 ]]; then
+          if [[ $_preserve_wifi -eq 1 ]]; then
+            WIFI_POWERSAVE_OFF=1
+          fi
+          if [[ $_preserve_bt -eq 1 ]]; then
+            DISABLE_BLUETOOTH=1
+          fi
+          if [[ $_preserve_wifi -eq 0 && $_preserve_bt -eq 0 ]]; then
+            WIFI_POWERSAVE_OFF=1
+          fi
+        fi
+        continue
+        ;;
+      zram)
+        if [[ $_preserve_zram_disabled -eq 1 ]]; then
+          ZRAM_ALGO_OVERRIDE=disabled
+        else
+          INSTALL_ZRAM=1
+        fi
+        continue
+        ;;
+    esac
     gate=${PI_TASK_GATE_VAR[$tid]:-}
     case $gate in
       ""|REQUESTED_HOSTNAME|REQUESTED_TIMEZONE|REQUESTED_LOCALE|PROXY_BACKEND|SSH_IMPORT_GITHUB|SSH_IMPORT_URL)
