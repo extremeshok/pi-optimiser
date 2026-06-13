@@ -7,7 +7,17 @@
 #
 # Tests assume --dry-run / --diff / --self-test semantics — no
 # destructive commands should run inside the container.
-FROM debian:trixie-slim
+# Base image is parameterised so CI can run the harness against BOTH
+# supported targets (Debian 13 "trixie" and Debian 12 "bookworm") via a
+# --build-arg matrix, instead of only ever testing trixie.
+ARG BASE_IMAGE=debian:trixie-slim
+FROM ${BASE_IMAGE}
+
+# Where the Pi-binary stubs record their invocations. Exported so the
+# test harness can assert a task actually reached a stub (rather than
+# trivially passing by skipping); without this the stubs' logging was
+# dead — nothing ever set or read it.
+ENV PI_OPTIMISER_STUB_LOG=/tmp/pi-optimiser-stub.log
 
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \

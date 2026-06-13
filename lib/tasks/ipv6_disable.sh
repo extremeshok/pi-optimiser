@@ -30,7 +30,12 @@ run_ipv6_disable() {
     return 2
   fi
   local conf=/etc/sysctl.d/98-pi-optimiser-ipv6.conf
-  backup_file "$conf"
+  # record_created registers a "created" journal entry so `--undo
+  # ipv6_disable` deletes the file (and IPv6 comes back). backup_file
+  # alone records nothing for a fresh file, so undo would leave it in
+  # place and IPv6 would stay disabled. record_created falls back to
+  # backup_file if the file already exists.
+  record_created "$conf"
   # Atomic write — a truncated sysctl.d file is rejected at boot and
   # the values silently fail to apply.
   _pi_atomic_write "$conf" <<'CFG'

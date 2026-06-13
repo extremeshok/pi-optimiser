@@ -19,6 +19,22 @@ pi_task_register underclock \
   gate_var=REQUEST_UNDERCLOCK \
   reboot_required=1
 
+# Single source of truth for the per-model underclock plan, consumed by
+# both run_underclock and pi_preview_underclock so --diff matches what is
+# written (and to the correct per-model section). Prints:
+# <section>\n<profile>\n<entry>...   (no output = unsupported model).
+_underclock_plan() {
+  if is_pi5; then
+    printf '%s\n' pi5 pi5_underclock arm_freq=1800 gpu_freq=700
+  elif is_pi4; then
+    printf '%s\n' pi4 pi4_underclock arm_freq=1200 gpu_freq=400
+  elif is_pi3; then
+    printf '%s\n' pi3 pi3_underclock arm_freq=1000 gpu_freq=300
+  elif is_pizero2; then
+    printf '%s\n' pi02 pi_zero2_underclock arm_freq=900 gpu_freq=300
+  fi
+}
+
 run_underclock() {
   if [[ ${REQUEST_UNDERCLOCK:-0} -eq 0 ]]; then
     log_info "Underclock not requested; skipping"
@@ -36,47 +52,19 @@ run_underclock() {
     return 2
   fi
 
-  local -a entries=()
-  local profile=""
-  # Model-specific values — route into the matching [piN] section so
-  # a card moved to a different Pi falls back to its own clocks.
-  local section="all"
-  if is_pi5; then
-    entries=("arm_freq=1800" "gpu_freq=700")
-    profile="pi5_underclock"
-    section="pi5"
-  elif is_pi4; then
-    entries=("arm_freq=1200" "gpu_freq=400")
-    profile="pi4_underclock"
-    section="pi4"
-  elif is_pi3; then
-    entries=("arm_freq=1000" "gpu_freq=300")
-    profile="pi3_underclock"
-    section="pi3"
-  elif is_pizero2; then
-    entries=("arm_freq=900" "gpu_freq=300")
-    profile="pi_zero2_underclock"
-    section="pi02"
-  else
+  local -a plan=()
+  mapfile -t plan < <(_underclock_plan)
+  if (( ${#plan[@]} == 0 )); then
     log_info "Underclock not supported on model ${SYSTEM_MODEL:-unknown}"
     pi_skip_reason "model unsupported"
     return 2
   fi
+  local section=${plan[0]} profile=${plan[1]}
+  local -a entries=("${plan[@]:2}")
 
   backup_file "$CONFIG_TXT_FILE"
-  local entry rc applied=0 safe_key
-  for entry in "${entries[@]}"; do
-    rc=0
-    ensure_config_key_value "$entry" "$CONFIG_TXT_FILE" "$section" || rc=$?
-    if [[ $rc -eq 0 ]]; then
-      log_info "Applied $entry to config.txt"
-      safe_key=${entry//=/_}
-      write_json_field "$CONFIG_OPTIMISER_STATE" "underclock.${safe_key}" "$entry"
-      applied=1
-    elif [[ $rc -gt 1 ]]; then
-      log_warn "Failed to apply $entry"
-    fi
-  done
+  local rc=0
+  apply_config_entries "underclock" "$section" "${entries[@]}" || rc=$?
 
   # Switch scaling governor to powersave to pair with the lower clocks.
   local g
@@ -85,28 +73,21 @@ run_underclock() {
     echo powersave > "$g" 2>/dev/null || true
   done
 
-  if [[ $applied -eq 1 ]]; then
-    write_json_field "$CONFIG_OPTIMISER_STATE" "underclock.profile" "$profile"
-    log_info "Underclock profile applied: $profile"
-  else
-    log_info "Underclock profile already present"
-  fi
+  case $rc in
+    0)
+      write_json_field "$CONFIG_OPTIMISER_STATE" "underclock.profile" "$profile"
+      log_info "Underclock profile applied: $profile"
+      ;;
+    1) log_info "Underclock profile already present" ;;
+    *) log_warn "One or more underclock entries failed to apply" ;;
+  esac
 }
 
 pi_preview_underclock() {
   [[ ${REQUEST_UNDERCLOCK:-0} -eq 0 ]] && return 0
   [[ ${REQUEST_OC_CONSERVATIVE:-0} -eq 1 ]] && return 0
-  local -a entries=()
-  if is_pi5; then
-    entries=("arm_freq=1800" "gpu_freq=700")
-  elif is_pi4; then
-    entries=("arm_freq=1200" "gpu_freq=400")
-  elif is_pi3; then
-    entries=("arm_freq=1000" "gpu_freq=300")
-  elif is_pizero2; then
-    entries=("arm_freq=900" "gpu_freq=300")
-  else
-    return 0
-  fi
-  pi_preview_apply_entries "${entries[@]}"
+  local -a plan=()
+  mapfile -t plan < <(_underclock_plan)
+  (( ${#plan[@]} == 0 )) && return 0
+  pi_preview_apply_entries --section "${plan[0]}" "${plan[@]:2}"
 }

@@ -14,7 +14,7 @@ pi_task_register fstrim \
   default_enabled=1
 
 run_fstrim() {
-  if ! systemctl list-unit-files fstrim.timer >/dev/null 2>&1; then
+  if ! unit_exists fstrim.timer; then
     log_info "fstrim.timer unit not available; skipping"
     pi_skip_reason "fstrim.timer missing"
     return 2

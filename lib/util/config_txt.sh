@@ -2,7 +2,8 @@
 # lib/util/config_txt.sh — /boot/firmware/config.txt editors
 #
 # Functions: ensure_config_line, ensure_config_key_value,
-#            ensure_line_in_file, _pi_config_preview_target
+#            apply_config_entries, _pi_config_apply_one,
+#            _pi_config_entry_is_bare_overlay, _pi_config_preview_target
 # Globals (read): CONFIG_TXT_FILE, PI_CONFIG_PREVIEW, PI_CONFIG_PREVIEW_DIR
 #
 # Return codes (ensure_config_*):
@@ -249,6 +250,68 @@ PY
   return 1
 }
 
+# A bare `dtoverlay=NAME` (no parameters, i.e. exactly one '=') is
+# additive — a config.txt may legitimately enable several distinct
+# overlays — so it uses whole-line semantics. Everything else
+# (key=value, dtparam=NAME=val, dtoverlay=NAME,opt=val) is a keyed
+# setting and is upserted by key.
+_pi_config_entry_is_bare_overlay() {
+  [[ $1 == dtoverlay=* && $1 != *=*=* ]]
+}
+
+# Apply ONE config.txt entry with the correct primitive. Mirrors the
+# dispatch used by apply_config_entries so --diff previews match what
+# run_<task> writes. Returns ensure_config_*'s rc (0 changed,
+# 1 unchanged, 2 error).
+_pi_config_apply_one() {
+  local entry=$1
+  local target=${2:-$CONFIG_TXT_FILE}
+  local section=${3:-all}
+  if _pi_config_entry_is_bare_overlay "$entry"; then
+    ensure_config_line "$entry" "$target" "$section"
+  else
+    ensure_config_key_value "$entry" "$target" "$section"
+  fi
+}
+
+# apply_config_entries <state_prefix> <section> <entry>...
+# Upsert each ENTRY into $CONFIG_TXT_FILE within SECTION using the
+# shared dispatch above, with uniform logging and return semantics, so
+# the config.txt tasks don't each hand-roll the loop. When STATE_PREFIX
+# is non-empty, every applied entry is also recorded under
+# <STATE_PREFIX>.<safe_key> in CONFIG_OPTIMISER_STATE (pass "" to skip
+# and let the task write its own summary field).
+# Returns: 0 if anything changed, 1 if all entries were already
+#          present, 2 if any write failed.
+apply_config_entries() {
+  local prefix=$1
+  local section=${2:-all}
+  shift 2
+  local entry rc changed=0 failed=0 safe_key
+  for entry in "$@"; do
+    rc=0
+    _pi_config_apply_one "$entry" "$CONFIG_TXT_FILE" "$section" || rc=$?
+    case $rc in
+      0)
+        changed=1
+        log_info "Applied $entry to config.txt"
+        if [[ -n $prefix ]]; then
+          safe_key=${entry//=/_}
+          write_json_field "$CONFIG_OPTIMISER_STATE" "${prefix}.${safe_key}" "$entry"
+        fi
+        ;;
+      1) : ;;
+      *)
+        failed=1
+        log_warn "Failed to apply $entry to config.txt"
+        ;;
+    esac
+  done
+  [[ $failed -eq 1 ]] && return 2
+  [[ $changed -eq 1 ]] && return 0
+  return 1
+}
+
 # Ensure config.txt contains exactly one `key=value` line for the given
 # key, inside the given section.
 # Args: 1=entry (key=value), 2=target (default $CONFIG_TXT_FILE),
@@ -269,12 +332,11 @@ ensure_config_key_value() {
   if [[ ! -f "$target" ]]; then
     touch "$target"
   fi
-  local key=${entry%%=*}
   local warn_file
   warn_file=$(mktemp) || return 2
   local result=""
   local rc=0
-  result=$(CONFIG_FILE="$target" CONFIG_ENTRY="$entry" CONFIG_KEY="$key" \
+  result=$(CONFIG_FILE="$target" CONFIG_ENTRY="$entry" \
     CONFIG_SECTION="$section" CONFIG_WARN_FILE="$warn_file" run_python <<'PY'
 import os
 from pathlib import Path
@@ -284,8 +346,33 @@ warn_path = os.environ.get('CONFIG_WARN_FILE', '')
 # Strip CR so a caller passing a CRLF-laced value doesn't seed mixed
 # line endings into /boot/firmware/config.txt.
 entry = os.environ['CONFIG_ENTRY'].strip().replace('\r', '')
-key = os.environ['CONFIG_KEY'].strip().lower()
 target_section = os.environ['CONFIG_SECTION'].strip().lower() or 'all'
+
+# The dtparam / dtoverlay families are MULTI-VALUED: a single config.txt
+# legitimately holds many of them (dtparam=audio=on, dtparam=i2c_arm=on,
+# dtparam=spi=on, ...). Keying them all on the bare word 'dtparam' would
+# make every dtparam line collide as one key, so writing dtparam=watchdog=on
+# would overwrite/delete the stock audio/i2c/spi lines. For these families
+# the effective key must include the parameter/overlay NAME so distinct
+# settings never collide; for everything else the key is the text before
+# the first '=' (gpu_mem, arm_freq, ...).
+_MULTI_VALUE_KEYS = ('dtparam', 'dtoverlay')
+
+def effective_key(text):
+    text = text.strip()
+    if '=' not in text:
+        return None
+    head = text.split('=', 1)[0].strip().lower()
+    if head in _MULTI_VALUE_KEYS:
+        rest = text.split('=', 1)[1]
+        # dtparam=NAME=value -> NAME ; dtoverlay=NAME,opt=val -> NAME
+        name = rest.split('=', 1)[0].split(',', 1)[0].strip().lower()
+        return head + '=' + name if name else head
+    return head
+
+# The match key is derived from the entry itself (single source of truth)
+# so the shell and Python sides can never diverge.
+key = effective_key(entry)
 
 def _warn(msg):
     if warn_path:
@@ -309,12 +396,9 @@ def parse_sections(lines):
     return sections
 
 def is_key_line(raw, want_key):
-    stripped = raw.strip()
-    candidate = stripped.lstrip('#').strip()
-    if '=' not in candidate:
-        return False
-    cand_key = candidate.split('=', 1)[0].strip().lower()
-    return cand_key == want_key
+    candidate = raw.strip().lstrip('#').strip()
+    cand_key = effective_key(candidate)
+    return cand_key is not None and cand_key == want_key
 
 sections = parse_sections(existing)
 
@@ -391,7 +475,7 @@ for idx, (name, body) in enumerate(sections):
 
 # Atomic write: stage .tmp + os.replace so a power loss between
 # truncate and write can never brick the boot config. Durable via
-# file + parent-dir fsync.
+# file + parent-dir fsync. (apply helpers follow this function.)
 payload = '\n'.join(out_lines) + '\n'
 tmp_path = config_path.with_suffix(config_path.suffix + '.pi-optimiser.tmp')
 with open(tmp_path, 'w') as fh:

@@ -2,8 +2,8 @@
 title: PI-OPTIMISER
 section: 8
 header: System Manager's Manual
-footer: pi-optimiser 9.4.5
-date: 2026-04
+footer: pi-optimiser 9.5.0
+date: 2026-06
 ---
 
 # NAME

@@ -11,15 +11,27 @@
 # Globals (read):  PI_CONFIG_PREVIEW_DIR, CONFIG_TXT_FILE
 # ======================================================================
 
-# Replay a list of config.txt entries through ensure_config_key_value,
-# which buffers under PI_CONFIG_PREVIEW=1. "Unchanged" (rc=1) and parse
-# failures (rc=2) are swallowed so a preview doesn't bail on one bad
-# line. Used by pi_preview_<task> functions.
+# Replay a list of config.txt entries through the SAME dispatch +
+# section as run_<task> (_pi_config_apply_one), which buffers under
+# PI_CONFIG_PREVIEW=1. "Unchanged" (rc=1) and parse failures (rc=2) are
+# swallowed so a preview doesn't bail on one bad line.
+#
+# Usage:
+#   pi_preview_apply_entries <entry>...               # section 'all'
+#   pi_preview_apply_entries --section pi5 <entry>...  # explicit section
+#
+# The --section form lets previews of [pi5]-scoped tasks (pi5_fan,
+# pcie_gen3, ...) match where run_<task> actually writes.
 pi_preview_apply_entries() {
   local target=${CONFIG_TXT_FILE:-/boot/firmware/config.txt}
+  local section=all
+  if [[ ${1:-} == --section ]]; then
+    section=${2:-all}
+    shift 2
+  fi
   local entry
   for entry in "$@"; do
-    ensure_config_key_value "$entry" "$target" >/dev/null 2>&1 || true
+    _pi_config_apply_one "$entry" "$target" "$section" >/dev/null 2>&1 || true
   done
 }
 

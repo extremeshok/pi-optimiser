@@ -27,10 +27,22 @@ run_var_log_tmpfs() {
 
   if [[ -d /var/log/journal ]]; then
     if find /var/log/journal -mindepth 1 -print -quit 2>/dev/null | grep -q .; then
-      local backup_tar
-      backup_tar=/var/log.journal-backup.pi-optimiser.$(date +%Y%m%d%H%M%S).tar.gz
-      if tar -czf "$backup_tar" -C /var/log journal >/dev/null 2>&1; then
-        log_info "Archived existing journal to $backup_tar"
+      # systemd journals contain sensitive data (auth failures with
+      # usernames/IPs, sudo invocations, secrets daemons log in the
+      # clear). On-disk they are 0640 root:systemd-journal; the archive
+      # MUST NOT downgrade that to world-readable. Write it under
+      # /var/backups (a sibling of /var/log so it survives the tmpfs
+      # mount) with umask 077 so it is created 0600 from the start (no
+      # 0644 race window), and belt-and-suspenders chmod afterwards.
+      # The rm must precede the mount: once tmpfs is mounted over
+      # /var/log the underlying journal is shadowed and unreclaimable,
+      # and it only runs after a successful archive, so no data is lost.
+      local backup_tar backup_dir=/var/backups
+      mkdir -p "$backup_dir"
+      backup_tar="$backup_dir/pi-optimiser-journal.$(date +%Y%m%d%H%M%S).tar.gz"
+      if ( umask 077; tar -czf "$backup_tar" -C /var/log journal ) >/dev/null 2>&1; then
+        chmod 600 "$backup_tar" 2>/dev/null || true
+        log_info "Archived existing journal to $backup_tar (mode 0600)"
         rm -rf /var/log/journal/* 2>/dev/null || true
       else
         log_warn "Failed to archive /var/log/journal prior to tmpfs mount"

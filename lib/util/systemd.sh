@@ -3,9 +3,29 @@
 #
 # Functions: unit_exists, unit_disable_now, unit_mask, remount_path,
 #            pi_mark_daemon_reload_needed, pi_daemon_reload_if_needed,
-#            pi_daemon_reload_now
+#            pi_daemon_reload_now, write_systemd_unit
 # Globals (read/write): PI_DAEMON_RELOAD_PENDING
 # ======================================================================
+
+# Write a systemd unit / drop-in (body on stdin) the safe way, replacing
+# the `record_created; cat > file; chmod 0644` pattern that was copied —
+# with subtle variations — across the unit-writing tasks. Does, in order:
+#   1. record_created  — so --undo can remove (or restore) the file;
+#   2. _pi_atomic_write — stage .tmp + fsync + os.replace, so a power
+#      loss mid-write can never leave systemd an unparseable unit;
+#   3. chmod 0644       — units must be world-readable, not umask-derived;
+#   4. pi_mark_daemon_reload_needed — batch the reload to end of run.
+# A task that must `systemctl enable --now` the unit within the SAME run
+# should call pi_daemon_reload_now afterwards (it reloads immediately and
+# clears the pending flag, avoiding a duplicate end-of-run reload).
+# Returns non-zero only if the atomic write fails.
+write_systemd_unit() {
+  local path=$1
+  record_created "$path"
+  _pi_atomic_write "$path" || return 1
+  chmod 0644 "$path" 2>/dev/null || true
+  pi_mark_daemon_reload_needed
+}
 
 # Mark that a task modified a systemd unit and a daemon-reload is needed.
 # Tasks should call this instead of `systemctl daemon-reload` directly so

@@ -131,7 +131,7 @@ pi_self_test() {
     # EEPROM tasks on non-Pi4/5
     case "$tid" in
       eeprom_config|eeprom_refresh)
-        pi_supports_kms_overlays \
+        pi_supports_eeprom \
           || { ok="SKIP (no EEPROM support)"; any_fail=1; }
         ;;
     esac

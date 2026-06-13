@@ -315,10 +315,13 @@ fi
 
 # 3. Shebang + strict-mode parity with the main script. A reordering
 # refactor that drops `set -euo pipefail` or `umask 0022` from the
-# pre-source block would silently ship a less-safe bundle. Compare
-# the first four non-blank lines of each.
+# pre-source block would silently ship a less-safe bundle. Compare the
+# shebang (line 1) PLUS the first three non-comment, non-blank lines.
+# The previous filter (`!/^#/`) skipped the shebang entirely — so the
+# "shebang parity" check never actually compared the shebang, the one
+# line it is named for.
 _first_strict() {
-  awk 'NF && !/^#/ && !/^$/ {print; n++; if (n==3) exit}' "$1"
+  awk 'NR==1 {print; next} NF && !/^#/ {print; n++; if (n==3) exit}' "$1"
 }
 if ! diff -u <(_first_strict "$main") <(_first_strict "$tmp") >/dev/null; then
   echo "build-bundle.sh: bundle shebang/strict-mode header diverged from main script:" >&2

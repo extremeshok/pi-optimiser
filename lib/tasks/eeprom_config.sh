@@ -96,6 +96,12 @@ PY
 
   if rpi-eeprom-config --apply "$new_conf" >/dev/null 2>&1; then
     log_info "Applied SDRAM_BANKLOW=$bank_value to EEPROM (profile: $profile); active after reboot"
+    # EEPROM state lives in the bootloader, not a file, so the file-based
+    # --undo journal cannot revert it. Record where the pre-change config
+    # was saved and how to roll it back manually, so --report/--status
+    # surface a recovery path.
+    write_json_field "$CONFIG_OPTIMISER_STATE" "eeprom.config_backup" "$backup_path"
+    log_info "To revert: sudo rpi-eeprom-config --apply $backup_path && sudo reboot"
     write_json_field "$CONFIG_OPTIMISER_STATE" "eeprom.sdram_banklow" "$bank_value"
     write_json_field "$CONFIG_OPTIMISER_STATE" "eeprom.profile" "$profile"
     return 0

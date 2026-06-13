@@ -48,35 +48,31 @@ run_thermal_thresholds() {
     return 1
   fi
   backup_file "$CONFIG_TXT_FILE"
-  local rc changed=0
-  if [[ -n ${TEMP_LIMIT:-} ]]; then
-    rc=0
-    ensure_config_key_value "temp_limit=$TEMP_LIMIT" "$CONFIG_TXT_FILE" || rc=$?
-    [[ $rc -eq 0 ]] && { log_info "Set temp_limit=$TEMP_LIMIT"; changed=1; }
-  fi
-  if [[ -n ${TEMP_SOFT_LIMIT:-} ]]; then
-    rc=0
-    ensure_config_key_value "temp_soft_limit=$TEMP_SOFT_LIMIT" "$CONFIG_TXT_FILE" || rc=$?
-    [[ $rc -eq 0 ]] && { log_info "Set temp_soft_limit=$TEMP_SOFT_LIMIT"; changed=1; }
-  fi
-  if [[ -n ${INITIAL_TURBO:-} ]]; then
-    rc=0
-    ensure_config_key_value "initial_turbo=$INITIAL_TURBO" "$CONFIG_TXT_FILE" || rc=$?
-    [[ $rc -eq 0 ]] && { log_info "Set initial_turbo=$INITIAL_TURBO"; changed=1; }
-  fi
-  if [[ $changed -eq 0 ]]; then
-    log_info "Thermal thresholds already match requested values"
+  local -a entries=()
+  mapfile -t entries < <(_thermal_thresholds_entries)
+  if (( ${#entries[@]} > 0 )); then
+    local rc=0
+    apply_config_entries "" all "${entries[@]}" || rc=$?
+    [[ $rc -eq 1 ]] && log_info "Thermal thresholds already match requested values"
   fi
   write_json_field "$CONFIG_OPTIMISER_STATE" "hardware.thermal.temp_limit" "${TEMP_LIMIT:-unset}"
   write_json_field "$CONFIG_OPTIMISER_STATE" "hardware.thermal.temp_soft_limit" "${TEMP_SOFT_LIMIT:-unset}"
   write_json_field "$CONFIG_OPTIMISER_STATE" "hardware.thermal.initial_turbo" "${INITIAL_TURBO:-unset}"
 }
 
+# Single source of truth for the firmware thermal entries, gated on
+# which values the operator actually requested. Consumed by both
+# run_thermal_thresholds and pi_preview_thermal_thresholds.
+_thermal_thresholds_entries() {
+  [[ -n ${TEMP_LIMIT:-} ]] && printf '%s\n' "temp_limit=$TEMP_LIMIT"
+  [[ -n ${TEMP_SOFT_LIMIT:-} ]] && printf '%s\n' "temp_soft_limit=$TEMP_SOFT_LIMIT"
+  [[ -n ${INITIAL_TURBO:-} ]] && printf '%s\n' "initial_turbo=$INITIAL_TURBO"
+  return 0
+}
+
 pi_preview_thermal_thresholds() {
   [[ ${THERMAL_THRESHOLDS_SET:-0} -eq 0 ]] && return 0
   local -a entries=()
-  [[ -n ${TEMP_LIMIT:-} ]] && entries+=("temp_limit=$TEMP_LIMIT")
-  [[ -n ${TEMP_SOFT_LIMIT:-} ]] && entries+=("temp_soft_limit=$TEMP_SOFT_LIMIT")
-  [[ -n ${INITIAL_TURBO:-} ]] && entries+=("initial_turbo=$INITIAL_TURBO")
+  mapfile -t entries < <(_thermal_thresholds_entries)
   (( ${#entries[@]} > 0 )) && pi_preview_apply_entries "${entries[@]}"
 }

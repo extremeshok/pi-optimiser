@@ -4,7 +4,7 @@
 # Consolidates the scattered `*raspberry pi 500*` / `*raspberry pi 400*`
 # string checks so tasks ask a single question.
 #
-# Functions: pi_is_generation, is_pi5, is_pi500, is_pi4, is_pi400,
+# Functions: pi_is_generation, is_pi5, is_pi4, is_pi400,
 #            is_pi3, is_pizero2, pi_supports_kms_overlays,
 #            pi_supports_eeprom
 # Globals (read): SYSTEM_PI_GEN, SYSTEM_MODEL
@@ -16,15 +16,9 @@ pi_is_generation() {
   [[ ${SYSTEM_PI_GEN:-unknown} == "$target" ]]
 }
 
-# Pi 5 / Pi 500 (generation 5 covers both).
+# Pi 5 / Pi 500 / CM5 (generation 5 covers all).
 is_pi5() {
   pi_is_generation 5
-}
-
-# Pi 500 specifically (the keyboard-form-factor Pi 5).
-is_pi500() {
-  local lower=${SYSTEM_MODEL,,}
-  [[ $lower == *"raspberry pi 500"* ]]
 }
 
 # Pi 4 or Pi 400 (generation 4 covers both).
@@ -48,6 +42,17 @@ is_pizero2() {
 
 # Determine if display KMS tweaks are applicable (Pi 4/5).
 pi_supports_kms_overlays() {
+  case ${SYSTEM_PI_GEN:-unknown} in
+    4|5) return 0 ;;
+    *)   return 1 ;;
+  esac
+}
+
+# Bootloader EEPROM is present on Pi 4/5-class hardware (and their Compute
+# Modules); Pi 3 / Zero 2 boot straight from the SD card with no EEPROM.
+# Used by --self-test so it can report EEPROM support accurately instead
+# of using the KMS-overlay check as a misleading proxy.
+pi_supports_eeprom() {
   case ${SYSTEM_PI_GEN:-unknown} in
     4|5) return 0 ;;
     *)   return 1 ;;

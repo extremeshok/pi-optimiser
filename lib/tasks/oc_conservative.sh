@@ -20,6 +20,27 @@ pi_task_register oc_conservative \
   gate_var=REQUEST_OC_CONSERVATIVE \
   reboot_required=1
 
+# Single source of truth for the per-model overclock plan, consumed by
+# both run_oc_conservative and pi_preview_oc_conservative so --diff can
+# never drift from what is written (and to the correct per-model section).
+# Prints: <section>\n<profile>\n<entry>...   (no output = unsupported model)
+# Each profile is routed into its own config.txt section so booting the
+# SD card on a different Pi model can't apply a value the silicon can't
+# sustain.
+_oc_conservative_plan() {
+  if is_pi5; then
+    printf '%s\n' pi5 pi5_2800mhz over_voltage_delta=30000 arm_freq=2800 gpu_freq=950
+  elif is_pi400; then
+    printf '%s\n' pi400 pi400_conservative arm_freq=2000 gpu_freq=600
+  elif is_pi4; then
+    printf '%s\n' pi4 pi4_conservative arm_freq=1750 gpu_freq=600
+  elif is_pi3; then
+    printf '%s\n' pi3 pi3_conservative arm_freq=1400 gpu_freq=500
+  elif is_pizero2; then
+    printf '%s\n' pi02 pi_zero2_conservative arm_freq=1200 gpu_freq=500
+  fi
+}
+
 run_oc_conservative() {
   if [[ $REQUEST_OC_CONSERVATIVE -eq 0 ]]; then
     log_info "Conservative overclock not requested; skipping"
@@ -47,91 +68,35 @@ run_oc_conservative() {
     return 2
   fi
 
-  local -a entries=()
-  local profile=""
-  # Overclock values are model-specific — route each profile into its
-  # own section so booting a different SD card on another Pi model
-  # won't apply a value the silicon can't sustain.
-  local section="all"
-  if is_pi5; then
-    entries=(
-      "over_voltage_delta=30000"
-      "arm_freq=2800"
-      "gpu_freq=950"
-    )
-    profile="pi5_2800mhz"
-    section="pi5"
-  elif is_pi400; then
-    entries=(
-      "arm_freq=2000"
-      "gpu_freq=600"
-    )
-    profile="pi400_conservative"
-    section="pi400"
-  elif is_pi4; then
-    entries=(
-      "arm_freq=1750"
-      "gpu_freq=600"
-    )
-    profile="pi4_conservative"
-    section="pi4"
-  elif is_pi3; then
-    entries=(
-      "arm_freq=1400"
-      "gpu_freq=500"
-    )
-    profile="pi3_conservative"
-    section="pi3"
-  elif is_pizero2; then
-    entries=(
-      "arm_freq=1200"
-      "gpu_freq=500"
-    )
-    profile="pi_zero2_conservative"
-    section="pi02"
-  else
+  local -a plan=()
+  mapfile -t plan < <(_oc_conservative_plan)
+  if (( ${#plan[@]} == 0 )); then
     log_info "Conservative overclock not supported on model ${SYSTEM_MODEL:-unknown}"
     pi_skip_reason "model unsupported"
     return 2
   fi
+  local section=${plan[0]} profile=${plan[1]}
+  local -a entries=("${plan[@]:2}")
 
   backup_file "$CONFIG_TXT_FILE"
-  local applied=0 entry safe_key rc
-  for entry in "${entries[@]}"; do
-    rc=0
-    ensure_config_key_value "$entry" "$CONFIG_TXT_FILE" "$section" || rc=$?
-    if [[ $rc -eq 0 ]]; then
-      log_info "Applied $entry to config.txt"
-      safe_key=${entry//=/_}
-      write_json_field "$CONFIG_OPTIMISER_STATE" "overclock.${safe_key}" "$entry"
-      applied=1
-    elif [[ $rc -gt 1 ]]; then
-      log_warn "Failed to apply $entry to config.txt"
-    fi
-  done
-  if [[ $applied -eq 1 ]]; then
-    write_json_field "$CONFIG_OPTIMISER_STATE" "overclock.profile" "$profile"
-    log_info "Conservative overclock profile applied: $profile"
-  else
-    log_info "Overclock profile already present"
-  fi
+  # apply_config_entries records each entry under overclock.<safe_key>
+  # (prefix "overclock"), matching the prior per-entry state shape.
+  local rc=0
+  apply_config_entries "overclock" "$section" "${entries[@]}" || rc=$?
+  case $rc in
+    0)
+      write_json_field "$CONFIG_OPTIMISER_STATE" "overclock.profile" "$profile"
+      log_info "Conservative overclock profile applied: $profile"
+      ;;
+    1) log_info "Overclock profile already present" ;;
+    *) log_warn "One or more overclock entries failed to apply" ;;
+  esac
 }
 
 pi_preview_oc_conservative() {
   [[ ${REQUEST_OC_CONSERVATIVE:-0} -eq 0 ]] && return 0
-  local -a entries=()
-  if is_pi5; then
-    entries=("over_voltage_delta=30000" "arm_freq=2800" "gpu_freq=950")
-  elif is_pi400; then
-    entries=("arm_freq=2000" "gpu_freq=600")
-  elif is_pi4; then
-    entries=("arm_freq=1750" "gpu_freq=600")
-  elif is_pi3; then
-    entries=("arm_freq=1400" "gpu_freq=500")
-  elif is_pizero2; then
-    entries=("arm_freq=1200" "gpu_freq=500")
-  else
-    return 0
-  fi
-  pi_preview_apply_entries "${entries[@]}"
+  local -a plan=()
+  mapfile -t plan < <(_oc_conservative_plan)
+  (( ${#plan[@]} == 0 )) && return 0
+  pi_preview_apply_entries --section "${plan[0]}" "${plan[@]:2}"
 }

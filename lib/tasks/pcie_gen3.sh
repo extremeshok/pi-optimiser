@@ -54,5 +54,6 @@ run_pcie_gen3() {
 pi_preview_pcie_gen3() {
   [[ ${INSTALL_PCIE_GEN3:-0} -eq 0 ]] && return 0
   is_pi5 || return 0
-  pi_preview_apply_entries "dtparam=pciex1_gen=3"
+  # Preview into [pi5] to match where run_pcie_gen3 writes.
+  pi_preview_apply_entries --section pi5 "dtparam=pciex1_gen=3"
 }

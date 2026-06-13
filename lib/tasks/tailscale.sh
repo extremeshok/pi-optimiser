@@ -50,21 +50,12 @@ run_tailscale() {
   record_created "$TAILSCALE_KEY_FILE"
   record_created "$TAILSCALE_LIST_FILE"
   key_url="https://pkgs.tailscale.com/stable/${repo_id}/${repo_suite}.noarmor.gpg"
-  # Secure curl defaults for the Tailscale apt signing key: HTTPS-only,
-  # bounded redirects/timeouts, TLS 1.2+, retry-with-backoff.
-  local -a _curl_secure=(
-    --fail --silent --show-error --location
-    --proto '=https' --proto-redir '=https'
-    --max-redirs 5
-    --connect-timeout 15 --max-time 120
-    --tlsv1.2
-    --retry 3 --retry-delay 2 --retry-connrefused
-  )
-  if ! curl "${_curl_secure[@]}" "$key_url" | gpg --dearmor > "$TAILSCALE_KEY_FILE"; then
+  # Download security policy lives in pi_curl_secure (lib/util/apt.sh).
+  if ! pi_curl_secure "$key_url" | gpg --dearmor > "$TAILSCALE_KEY_FILE"; then
     if [[ $repo_suite != "bookworm" ]]; then
       local fallback_url="https://pkgs.tailscale.com/stable/${repo_id}/bookworm.noarmor.gpg"
       log_warn "Tailscale key for $repo_suite unavailable; falling back to bookworm"
-      if curl "${_curl_secure[@]}" "$fallback_url" | gpg --dearmor > "$TAILSCALE_KEY_FILE"; then
+      if pi_curl_secure "$fallback_url" | gpg --dearmor > "$TAILSCALE_KEY_FILE"; then
         repo_suite=bookworm
       else
         log_error "Failed to download Tailscale signing key from $fallback_url"
@@ -86,7 +77,12 @@ EOF
   if ! apt_update_once; then
     log_warn "apt-get update encountered issues after adding Tailscale repo"
   fi
-  if ! DEBIAN_FRONTEND=noninteractive apt-get install -y tailscale; then
+  # ensure_packages waits out a held dpkg lock (apt-daily / unattended
+  # upgrades routinely hold it on a fresh boot) and short-circuits when
+  # tailscale is already installed; a raw apt-get install would fail
+  # immediately on the lock and record the task as failed. Also honours
+  # the AGENTS.md rule: never apt-get install outside ensure_packages.
+  if ! ensure_packages tailscale; then
     log_error "Failed to install tailscale package"
     return 1
   fi

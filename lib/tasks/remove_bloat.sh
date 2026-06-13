@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: remove_bloat
-# version: 1.2.0
+# version: 1.3.0
 # description: Remove preinstalled demo and educational packages
 # category: packages
 # default_enabled: 1
@@ -10,8 +10,14 @@
 pi_task_register remove_bloat \
   description="Remove preinstalled demo and educational packages" \
   category=packages \
-  version=1.2.0 \
+  version=1.3.0 \
   default_enabled=1
+
+# NOTE: Raspberry Pi Connect (raspberrypi-connect / rpi-connect*) is
+# deliberately NOT purged here. It is a first-party remote-access tool —
+# pi-optimiser even has an opt-in install task for it — and silently
+# removing it from a default run can cut off a headless operator's way
+# back in. It is not demo/educational bloat.
 
 # Decide whether the current run counts as "non-desktop" — kiosk /
 # server / headless-iot all qualify, and so does an explicit
@@ -39,9 +45,6 @@ run_remove_bloat() {
     'nodered'
     'nuscratch'
     'python-games'
-    'raspberrypi-connect'
-    'rpi-connect'
-    'rpi-connect-server'
     'scratch'
     'scratch2'
     'scratch3'

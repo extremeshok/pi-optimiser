@@ -45,21 +45,25 @@ CFG
   # (re)starts. Without daemon-reload the running resolved keeps its
   # old in-memory config and the cache options only kick in on next
   # boot or manual reload.
-  systemctl daemon-reload >/dev/null 2>&1 || true
+  pi_daemon_reload_now
   systemctl enable --now systemd-resolved >/dev/null 2>&1 || log_warn "Unable to enable systemd-resolved"
 
-  # Point /etc/resolv.conf at the stub so clients use the cache.
-  if [[ -L /etc/resolv.conf ]]; then
-    local current
-    current=$(readlink -f /etc/resolv.conf)
-    if [[ $current != /run/systemd/resolve/stub-resolv.conf ]]; then
-      ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-      log_info "Pointed /etc/resolv.conf at systemd-resolved stub"
-    fi
-  else
-    backup_file /etc/resolv.conf
+  # Point /etc/resolv.conf at the stub so clients use the cache. Back up
+  # the existing resolver FIRST — whether it is a regular file or an
+  # existing symlink (the common Bookworm/Trixie case, e.g. pointing at a
+  # NetworkManager-managed file). record_created journals the symlink via
+  # backup_file (cp -a preserves the link target) when it exists, or
+  # registers a "created" entry when absent, so `--undo dns_cache`
+  # restores the operator's previous resolver instead of stranding the
+  # stub symlink.
+  local current=""
+  if [[ -e /etc/resolv.conf || -L /etc/resolv.conf ]]; then
+    current=$(readlink -f /etc/resolv.conf 2>/dev/null || echo "")
+  fi
+  if [[ $current != /run/systemd/resolve/stub-resolv.conf ]]; then
+    record_created /etc/resolv.conf
     ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-    log_info "Replaced /etc/resolv.conf with systemd-resolved stub symlink"
+    log_info "Pointed /etc/resolv.conf at systemd-resolved stub"
   fi
   systemctl restart systemd-resolved >/dev/null 2>&1 || true
   write_json_field "$CONFIG_OPTIMISER_STATE" "network.dns_cache" "systemd-resolved"

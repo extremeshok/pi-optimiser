@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: sysctl
-# version: 1.2.0
+# version: 1.3.0
 # description: Tune kernel memory and network settings for server/desktop use
 # category: system
 # default_enabled: 1
@@ -10,7 +10,7 @@
 pi_task_register sysctl \
   description="Tune kernel memory and network settings for server/desktop use" \
   category=system \
-  version=1.2.0 \
+  version=1.3.0 \
   default_enabled=1
 
 run_sysctl() {
@@ -27,9 +27,13 @@ fs.file-max = 2097152
 net.core.rmem_max = 33554432
 net.core.wmem_max = 33554432
 net.core.netdev_max_backlog = 4096
-net.ipv4.ip_forward = 1
-net.ipv4.conf.all.forwarding = 1
-net.ipv4.conf.default.forwarding = 1
+# NOTE: IP forwarding is intentionally NOT enabled here. A default
+# pi-optimiser run targets ordinary single-homed hosts; turning every
+# Pi into a router (net.ipv4.ip_forward=1) widens the network surface
+# and is wrong for the overwhelming majority. Hosts that genuinely route
+# (VPN gateway, NAT box) should set it deliberately. send_redirects=0 is
+# kept as harmless hardening — a non-router has no business emitting
+# ICMP redirects.
 net.ipv4.conf.all.send_redirects = 0
 net.ipv4.conf.default.send_redirects = 0
 # TCP BBR + fq qdisc — Google's production default since ~2017. Better

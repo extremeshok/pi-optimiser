@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: disable_services
-# version: 1.2.0
+# version: 1.3.0
 # description: Stop non-essential background services (ModemManager, Avahi, openipmi)
 # category: system
 # default_enabled: 1
@@ -10,17 +10,24 @@
 pi_task_register disable_services \
   description="Stop non-essential background services (ModemManager, Avahi, openipmi)" \
   category=system \
-  version=1.2.0 \
+  version=1.3.0 \
   default_enabled=1
 
 run_disable_services() {
+  # NOTE: rsyslog is intentionally NOT disabled here. The journald task
+  # sets Storage=volatile (journal in RAM) and var_log_tmpfs moves
+  # /var/log to RAM — both default-enabled. With rsyslog also off, a Pi
+  # would have NO persistent system log at all: after a crash + reboot
+  # there is nothing to diagnose from. Leaving rsyslog running preserves
+  # a persistent /var/log/syslog for operators who keep /var/log on disk
+  # (it is lightweight, and absent on Lite images, where unit_exists
+  # simply skips it).
   local -a units=(
     triggerhappy.service
     bluetooth.service
     hciuart.service
     avahi-daemon.service
     cups.service
-    rsyslog.service
   )
   local unit
   for unit in "${units[@]}"; do

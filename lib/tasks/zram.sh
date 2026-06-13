@@ -75,7 +75,7 @@ run_zram() {
       rm -f "$ZRAM_CONF_FILE"
       removed=1
     fi
-    if systemctl list-unit-files systemd-zram-setup@.service >/dev/null 2>&1; then
+    if unit_exists systemd-zram-setup@.service; then
       systemctl disable --now systemd-zram-setup@zram0 >/dev/null 2>&1 || log_warn "Unable to disable systemd-zram-setup@zram0"
     fi
     swapoff /dev/zram0 >/dev/null 2>&1 || true
@@ -135,8 +135,8 @@ swap-priority = 100
 CFG
 
   log_info "Configured $ZRAM_CONF_FILE for ${size_mb}MB ZRAM swap"
-  systemctl daemon-reload >/dev/null 2>&1 || true
-  if systemctl list-unit-files systemd-zram-setup@.service >/dev/null 2>&1; then
+  pi_daemon_reload_now
+  if unit_exists systemd-zram-setup@.service; then
     systemctl enable --now systemd-zram-setup@zram0 >/dev/null 2>&1 || log_warn "Unable to enable systemd-zram-setup@zram0"
   else
     log_warn "systemd-zram-setup@.service not found; ensure systemd-zram-generator is installed"

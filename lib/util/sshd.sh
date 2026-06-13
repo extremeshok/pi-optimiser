@@ -1,8 +1,44 @@
 # ======================================================================
 # lib/util/sshd.sh — sshd_config editor
 #
-# Functions: update_sshd_config_option
+# Functions: update_sshd_config_option, pi_sshd_effective_port
 # ======================================================================
+
+# Resolve the EFFECTIVE sshd listen port. On Bookworm/Trixie the
+# canonical way to change the port is a drop-in under
+# /etc/ssh/sshd_config.d/*.conf (cloud-init, Ansible, raspi-config and
+# manual admins all use this; the shipped sshd_config carries only an
+# `Include` line and no Port). A naive `awk` over /etc/ssh/sshd_config
+# alone misses that and returns 22 — which would make ufw_firewall open
+# the wrong port and drop the operator's live session (remote lockout),
+# and point fail2ban's jail at the wrong port.
+#
+# We ask sshd itself for its merged config view (`sshd -T`), which
+# honours every Include'd drop-in, then fall back to scanning the main
+# file and any drop-ins directly (for environments without the sshd
+# binary, e.g. CI), and finally to 22. Prints a single port number.
+pi_sshd_effective_port() {
+  local port=""
+  if command -v sshd >/dev/null 2>&1; then
+    # `sshd -T` prints the fully-merged effective config with lowercased
+    # keys; the first `port N` line is the primary listen port. It exits
+    # non-zero on a fatal config error, in which case awk yields nothing
+    # and we fall through to the file scan.
+    port=$(sshd -T 2>/dev/null | awk '/^port[[:space:]]+[0-9]+/{print $2; exit}')
+  fi
+  if [[ -z $port && -r /etc/ssh/sshd_config ]]; then
+    port=$(awk '/^[[:space:]]*[Pp]ort[[:space:]]+[0-9]+/{print $2; exit}' /etc/ssh/sshd_config 2>/dev/null)
+  fi
+  if [[ -z $port ]]; then
+    local dropin
+    for dropin in /etc/ssh/sshd_config.d/*.conf; do
+      [[ -r $dropin ]] || continue
+      port=$(awk '/^[[:space:]]*[Pp]ort[[:space:]]+[0-9]+/{print $2; exit}' "$dropin" 2>/dev/null)
+      [[ -n $port ]] && break
+    done
+  fi
+  printf '%s\n' "${port:-22}"
+}
 
 # Ensure sshd_config directive is set to the specified value.
 update_sshd_config_option() {

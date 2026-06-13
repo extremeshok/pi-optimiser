@@ -3,7 +3,7 @@
 # Coded by Adrian Jon Kriel :: admin@extremeshok.com
 # Project home: https://github.com/extremeshok/pi-optimiser
 # ======================================================================
-# pi-optimiser.sh :: version 9.4.5
+# pi-optimiser.sh :: version 9.5.0
 #======================================================================
 # One-shot optimiser for Raspberry Pi OS desktops. Key capabilities:
 #   - Removes bundled bloatware and trims apt caches for a lean install
@@ -35,7 +35,7 @@ fi
 
 SCRIPT_NAME=$(basename "$0")
 readonly SCRIPT_NAME
-SCRIPT_VERSION="9.4.5"
+SCRIPT_VERSION="9.5.0"
 readonly SCRIPT_VERSION
 
 # Globals consumed by sourced lib/util/*.sh modules; shellcheck cannot
@@ -633,11 +633,16 @@ apply_once() {
   if [[ $_value_changed -eq 0 ]] && is_task_done "$task"; then
     log_info "Re-running $task: requested value differs from current system state"
   fi
-  if [[ $FORCE -eq 1 && $DRY_RUN -eq 0 ]]; then
-    # Under --dry-run, preserving the existing state is essential —
-    # the whole point is that no side effects happen. We still honour
-    # --force enough to let the task "run" (below) so dry-run output
-    # shows what would happen, but we don't mutate state.json.
+  if [[ $FORCE -eq 1 && $DRY_RUN -eq 0 ]] && pi_task_gate_active "$task"; then
+    # --force re-runs a task, so drop its completion marker to bypass the
+    # is_task_done short-circuit. Guards:
+    #   - $DRY_RUN -eq 0: --dry-run must not mutate state.json.
+    #   - pi_task_gate_active: only clear a task that will ACTUALLY run.
+    #     Without this, a blanket `--force` (no opt-in flags) wiped the
+    #     completion marker of every gated task — docker, zram,
+    #     node_exporter, ... — because the runner self-skips (return 2)
+    #     and the rc==2 path never re-records state, leaving --status /
+    #     --report / metrics showing installed tasks as never-run.
     clear_task_state "$task"
   fi
   log_info "Running task $task: $desc"
@@ -1328,25 +1333,42 @@ main() {
   # flag is explicitly passed).
   # shellcheck disable=SC2034  # read by lib/ui/tui.sh::pi_tui_should_launch
   PI_ARGV_RAW=" $* "
-  # Flags that clearly mean "don't show the menu."
+  # Flags that clearly mean "don't show the menu." Global/mode flags are
+  # listed here; every TASK flag is appended from the task registry just
+  # below so this set can never drift out of sync with the tasks again
+  # (it previously omitted --wifi-powersave-off, --zram-algo, --temp-limit
+  # and others, so passing them on an interactive TTY wrongly launched the
+  # whiptail menu instead of running the requested task).
   # shellcheck disable=SC2034
   PI_CLI_ACTION_FLAGS=(
-    --force --dry-run --status --list-tasks --report --snapshot --restore
+    --force --dry-run --diff --status --list-tasks --list-profiles --report
+    --validate-config --self-test --snapshot --restore
     --undo --update --check-update --enable-update-timer
     --disable-update-timer --uninstall --migrate --rollback
     --only --skip
-    --install-tailscale --install-docker --install-zram --install-wireguard
-    --install-node-exporter --install-smartmontools --install-cli-modern
-    --install-net-diag --enable-dns-cache
-    --overclock-conservative --underclock --pi5-fan-profile --pcie-gen3
-    --enable-watchdog --secure-ssh --firmware-update --eeprom-update
-    --install-firewall --power-off-halt --nvme-tune --quiet-boot
-    --disable-leds --install-pi-connect --remove-cups
-    --headless-gpu-mem --install-chrony --disable-ipv6
-    --usb-uas-quirks --usb-uas-extra --install-hailo
-    --ssh-import-github --ssh-import-url
     --hostname --timezone --locale --proxy-backend
     --profile --config
+  )
+  # Append every flag declared in a task's `flags=` metadata (and the
+  # value-companion flags that gate the same tasks). PI_TASK_FLAGS is the
+  # single source of truth populated by pi_task_register.
+  local _tid _tflag
+  local -a _task_flag_tokens=()
+  for _tid in "${PI_TASK_ORDER[@]}"; do
+    [[ -n "${PI_TASK_FLAGS[$_tid]:-}" ]] || continue
+    IFS=',' read -ra _task_flag_tokens <<< "${PI_TASK_FLAGS[$_tid]}"
+    for _tflag in "${_task_flag_tokens[@]}"; do
+      _tflag=${_tflag//[[:space:]]/}
+      [[ -n "$_tflag" ]] && PI_CLI_ACTION_FLAGS+=("$_tflag")
+    done
+  done
+  # Value-companion flags that tune a task but aren't its gate flag, so
+  # they don't appear in PI_TASK_FLAGS. Adding them keeps the TUI gate
+  # correct when only one of these is passed.
+  PI_CLI_ACTION_FLAGS+=(
+    --usb-uas-extra --zram-algo --temp-limit --temp-soft-limit
+    --initial-turbo --docker-buildx-multiarch --docker-cgroupv2
+    --wifi-powersave-off --disable-bluetooth
   )
 
   # Pre-scan argv for flags that change config-load decisions. We need
@@ -1623,33 +1645,12 @@ main() {
       SUMMARY_SKIPPED+=("$reason")
       continue
     fi
-    # Proxy special case: if the backend URL changed since last run,
-    # drop the completion marker so the task re-configures nginx.
-    if [[ "$task" == "proxy" && -n "$PROXY_BACKEND" ]]; then
-      local current_backend
-      if current_backend=$(get_stored_proxy_backend); then
-        if [[ "$current_backend" != "$PROXY_BACKEND" ]]; then
-          log_info "Proxy backend changed from '$current_backend' to '$PROXY_BACKEND'; re-running"
-          clear_task_state "$task"
-        fi
-      else
-        clear_task_state "$task"
-      fi
-    fi
-    # ufw_firewall special case: reconcile when the set of things it
-    # opens ports for (VPN interfaces, proxy symlink, SSH port) has
-    # changed since the last run. Without this the firewall can
-    # silently drift when a VPN is added or removed later.
-    if [[ "$task" == "ufw_firewall" && ${INSTALL_FIREWALL:-0} -eq 1 ]] \
-       && declare -F _ufw_fingerprint >/dev/null 2>&1; then
-      local current_fp stored_fp
-      current_fp=$(_ufw_fingerprint)
-      stored_fp=$(read_json_field "$CONFIG_OPTIMISER_STATE" "firewall.fingerprint" 2>/dev/null || echo "")
-      if [[ -n "$stored_fp" && "$stored_fp" != "$current_fp" ]]; then
-        log_info "Firewall inputs changed ($stored_fp -> $current_fp); re-reconciling"
-        clear_task_state "$task"
-      fi
-    fi
+    # Proxy backend changes and ufw_firewall input changes are detected
+    # by the tasks' own pi_<task>_value_changed hooks (proxy.sh /
+    # ufw_firewall.sh), which apply_once consults to re-run a completed
+    # task WITHOUT mutating state.json. That keeps --dry-run and --diff
+    # side-effect free; the old hard-coded clear_task_state blocks here
+    # leaked state writes into both preview modes.
     # apply_once returns non-zero on fatal task failure. Under `set -e`
     # that kills the loop immediately and skips every remaining task.
     # Capture the rc, keep going, and surface the failure at the end.

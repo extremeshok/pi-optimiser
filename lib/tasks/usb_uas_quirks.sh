@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: usb_uas_quirks
-# version: 1.0.0
+# version: 1.1.0
 # description: Disable UAS on known-broken USB-SATA adapters (auto-detect + list)
 # category: storage
 # default_enabled: 0
@@ -13,7 +13,7 @@
 pi_task_register usb_uas_quirks \
   description="Disable UAS on known-broken USB-SATA adapters (auto-detect + list)" \
   category=storage \
-  version=1.0.0 \
+  version=1.1.0 \
   default_enabled=0 \
   flags="--usb-uas-quirks" \
   gate_var=USB_UAS_QUIRKS \
@@ -90,6 +90,32 @@ _usb_uas_detect() {
   printf '%s' "$out"
 }
 
+# Union two comma-separated quirks lists, preserving order (existing
+# entries first, then newly-detected). usb-storage.quirks is a single
+# kernel module parameter, so an existing token already in cmdline.txt
+# must be merged with — not clobbered or duplicated by — what we detect
+# this run; otherwise a pre-existing quirk (or one for an adapter that
+# happens to be unplugged this boot) is silently dropped.
+_usb_uas_merge() {
+  local existing=$1 detected=$2
+  local -A seen=()
+  local out="" item
+  local -a items=()
+  IFS=',' read -ra items <<< "$existing"
+  local -a more=()
+  IFS=',' read -ra more <<< "$detected"
+  items+=("${more[@]}")
+  for item in "${items[@]}"; do
+    item=${item//[[:space:]]/}
+    [[ -z "$item" ]] && continue
+    [[ -n "${seen[$item]:-}" ]] && continue
+    seen[$item]=1
+    [[ -n "$out" ]] && out+=","
+    out+="$item"
+  done
+  printf '%s' "$out"
+}
+
 run_usb_uas_quirks() {
   if [[ ${USB_UAS_QUIRKS:-0} -eq 0 ]]; then
     log_info "USB UAS quirks not requested; skipping"
@@ -109,15 +135,21 @@ run_usb_uas_quirks() {
     return 2
   fi
   backup_file "$CMDLINE_FILE"
-  local token="usb-storage.quirks=$quirks"
+  # Merge with any existing usb-storage.quirks= token and write exactly
+  # one (cmdline_set_kv replaces by key). cmdline_ensure_token would have
+  # appended a second token, and the kernel keeps only the last — silently
+  # dropping a pre-existing quirk or one for an unplugged adapter.
+  local existing merged
+  existing=$(cmdline_get_value "usb-storage.quirks" "$CMDLINE_FILE" 2>/dev/null || true)
+  merged=$(_usb_uas_merge "$existing" "$quirks")
   local rc=0
-  cmdline_ensure_token "$token" "$CMDLINE_FILE" || rc=$?
+  cmdline_set_kv "usb-storage.quirks" "$merged" "$CMDLINE_FILE" || rc=$?
   case $rc in
-    0) log_info "Applied $token (reboot required)" ;;
-    1) log_info "$token already present in cmdline.txt" ;;
+    0) log_info "Applied usb-storage.quirks=$merged (reboot required)" ;;
+    1) log_info "usb-storage.quirks=$merged already present in cmdline.txt" ;;
     *) log_warn "Failed to write USB quirks to cmdline.txt"; return 1 ;;
   esac
-  write_json_field "$CONFIG_OPTIMISER_STATE" "storage.uas_quirks" "$quirks"
+  write_json_field "$CONFIG_OPTIMISER_STATE" "storage.uas_quirks" "$merged"
 }
 
 pi_preview_usb_uas_quirks() {
@@ -126,5 +158,8 @@ pi_preview_usb_uas_quirks() {
   quirks=$(_usb_uas_detect)
   [[ -z "$quirks" ]] && return 0
   local target=${CMDLINE_FILE:-/boot/firmware/cmdline.txt}
-  cmdline_ensure_token "usb-storage.quirks=$quirks" "$target" >/dev/null 2>&1 || true
+  local existing merged
+  existing=$(cmdline_get_value "usb-storage.quirks" "$target" 2>/dev/null || true)
+  merged=$(_usb_uas_merge "$existing" "$quirks")
+  cmdline_set_kv "usb-storage.quirks" "$merged" "$target" >/dev/null 2>&1 || true
 }

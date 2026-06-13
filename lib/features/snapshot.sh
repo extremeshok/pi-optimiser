@@ -85,6 +85,7 @@ pi_take_snapshot() {
        --exclude="$MARKER_DIR/state.json" \
        --exclude="$MARKER_DIR/state.schema" \
        --exclude="$MARKER_DIR/state" \
+       --exclude="$MARKER_DIR/config-optimisations.json" \
        "${existing[@]}" 2>/dev/null; then
     chmod 600 "$archive"
     log_info "Snapshot written: $archive ($(stat -c%s "$archive") bytes)"
