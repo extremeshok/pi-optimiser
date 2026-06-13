@@ -114,17 +114,44 @@ trap 'rm -f "$tmp_tar"; rm -rf "$tmp_extract"' EXIT
 
 echo "Fetching pi-optimiser @ ${PI_OPTIMISER_REF}"
 # Try tag first (the common case for versioned refs like v9.0.1), then
-# fall back to branches (for master/main). `curl -fsSL -o` emits its
-# own message on failure, so we route both attempts' stderr to /dev/null
-# and only surface a combined error if both fail.
+# fall back to branches (for master/main). A tag 404 is expected for a
+# branch ref (and vice versa), so we only fall through on an HTTP error
+# (curl exit 22). A genuine network failure (DNS/connect/timeout/TLS)
+# returns a different exit code — in that case there's no point retrying
+# the branch URL against the same broken network, so abort immediately
+# with the real curl diagnostic instead of a misleading "tried tag +
+# branch" message that hides whether the ref or the network was at fault.
 tag_url="https://codeload.github.com/${PI_OPTIMISER_REPO}/tar.gz/refs/tags/${PI_OPTIMISER_REF}"
 branch_url="https://codeload.github.com/${PI_OPTIMISER_REPO}/tar.gz/refs/heads/${PI_OPTIMISER_REF}"
-if ! curl "${CURL_SECURE_OPTS[@]}" "$tag_url" -o "$tmp_tar" 2>/dev/null; then
-  if ! curl "${CURL_SECURE_OPTS[@]}" "$branch_url" -o "$tmp_tar" 2>/dev/null; then
-    echo "Failed to download ${PI_OPTIMISER_REF} (tried tag + branch)" >&2
+_curl_err=$(mktemp)
+# Capture curl's own exit code via `|| rc=$?` (set -e safe). NOTE: an
+# `if ! curl; then rc=$?` would capture the NEGATION's exit (0), not
+# curl's — so this form is required to tell HTTP 404 (22) from a network
+# error apart at all.
+tag_rc=0
+curl "${CURL_SECURE_OPTS[@]}" "$tag_url" -o "$tmp_tar" 2>"$_curl_err" || tag_rc=$?
+if [[ $tag_rc -ne 0 ]]; then
+  if [[ $tag_rc -ne 22 ]]; then
+    echo "Failed to fetch ${PI_OPTIMISER_REF} (network/transport error, curl exit $tag_rc):" >&2
+    cat "$_curl_err" >&2
+    rm -f "$_curl_err"
+    exit 1
+  fi
+  # HTTP error on the tag (likely the ref is a branch) — try the branch.
+  branch_rc=0
+  curl "${CURL_SECURE_OPTS[@]}" "$branch_url" -o "$tmp_tar" 2>"$_curl_err" || branch_rc=$?
+  if [[ $branch_rc -ne 0 ]]; then
+    if [[ $branch_rc -eq 22 ]]; then
+      echo "Ref '${PI_OPTIMISER_REF}' not found as a tag or a branch (HTTP 404)" >&2
+    else
+      echo "Failed to fetch ${PI_OPTIMISER_REF} from branch URL (curl exit $branch_rc):" >&2
+      cat "$_curl_err" >&2
+    fi
+    rm -f "$_curl_err"
     exit 1
   fi
 fi
+rm -f "$_curl_err"
 
 # If the ref is an exact version tag (vX.Y.Z), attempt to fetch and
 # verify the published release bundle sha256 alongside the tarball.

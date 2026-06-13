@@ -68,19 +68,11 @@ run_ssh_import() {
   # shellcheck disable=SC2064
   trap "rm -f '$tmp_keys'" RETURN
   local imported=0
-  # Secure curl defaults for key imports: HTTPS-only (we already reject
-  # non-https for --ssh-import-url above), bounded redirects + timeouts
-  # to avoid hung downloads, TLS 1.2+, retry-with-backoff on transient
-  # network errors. -f ensures a non-2xx response does not leave a
-  # partially-written HTML error page in $tmp_keys.
-  local -a _curl_secure=(
-    --fail --silent --show-error --location
-    --proto '=https' --proto-redir '=https'
-    --max-redirs 5
-    --connect-timeout 15 --max-time 60
-    --tlsv1.2
-    --retry 3 --retry-delay 2 --retry-connrefused
-  )
+  # Key imports use the shared download security policy (pi_curl_secure in
+  # lib/util/apt.sh): HTTPS-only (we already reject non-https for
+  # --ssh-import-url above), bounded redirects, TLS 1.2+, retry-with-
+  # backoff. We pass --max-time 60 per call (tighter than the default) and
+  # --max-filesize to cap the key payload.
 
   # Cap on downloaded key file size (128 KiB). A legitimate GitHub .keys
   # response is a few KiB at most; anything larger is either a mistake
@@ -207,7 +199,7 @@ PY
       return 1
     fi
     local gh_url="https://github.com/${SSH_IMPORT_GITHUB}.keys"
-    if curl "${_curl_secure[@]}" --max-filesize "$_max_keys_bytes" "$gh_url" -o "$tmp_keys" \
+    if pi_curl_secure --max-time 60 --max-filesize "$_max_keys_bytes" "$gh_url" -o "$tmp_keys" \
        && [[ -s "$tmp_keys" ]]; then
       if _ssh_import_merge_keys "$tmp_keys" "$authorized" "github:$SSH_IMPORT_GITHUB" >/dev/null; then
         imported=1
@@ -230,7 +222,7 @@ PY
       rm -f "$tmp_keys"
       return 1
     fi
-    if curl "${_curl_secure[@]}" --max-filesize "$_max_keys_bytes" "$SSH_IMPORT_URL" -o "$tmp_keys" \
+    if pi_curl_secure --max-time 60 --max-filesize "$_max_keys_bytes" "$SSH_IMPORT_URL" -o "$tmp_keys" \
        && [[ -s "$tmp_keys" ]]; then
       if _ssh_import_merge_keys "$tmp_keys" "$authorized" "url:$SSH_IMPORT_URL" >/dev/null; then
         imported=1

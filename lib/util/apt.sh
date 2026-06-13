@@ -1,10 +1,35 @@
 # ======================================================================
 # lib/util/apt.sh — apt wrappers
 #
-# Functions: apt_update_once, ensure_packages, apt_wait_for_lock
+# Functions: apt_update_once, ensure_packages, apt_wait_for_lock,
+#            pi_curl_secure
 # Globals (read):  APT_UPDATED, NETWORK_AVAILABLE, APT_LOCK_BUSY
 # Globals (write): APT_UPDATED, APT_LOCK_BUSY
 # ======================================================================
+
+# Run curl with hardened defaults for third-party downloads (apt signing
+# keys, SSH key imports, ...). Centralises the download security policy
+# that was previously copy-pasted as a `_curl_secure` array in
+# docker/tailscale/ssh_import — so tightening it (e.g. raising the TLS
+# floor to 1.3, or changing the redirect policy) is a single edit instead
+# of four, and no downloader can silently drift weaker than the others.
+#   - HTTPS only, on the initial request AND across redirects (no
+#     plaintext, no downgrade-on-redirect);
+#   - bounded redirects; explicit connect/total timeouts so a hung mirror
+#     can't block the run; TLS 1.2 floor; retry-with-backoff on transient
+#     failures.
+# Caller args (URL, -o, -I, --max-filesize, and any --max-time/-timeout
+# override) are appended; curl honours the last occurrence of a repeated
+# option, so callers can tighten a timeout per-call.
+pi_curl_secure() {
+  curl --fail --silent --show-error --location \
+    --proto '=https' --proto-redir '=https' \
+    --max-redirs 5 \
+    --connect-timeout 15 --max-time 120 \
+    --tlsv1.2 \
+    --retry 3 --retry-delay 2 --retry-connrefused \
+    "$@"
+}
 
 # Wait up to N seconds (default 30) for any concurrent apt/dpkg frontend
 # to release the lock. Returns 0 if the lock is free (or never was

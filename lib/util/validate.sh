@@ -1,9 +1,13 @@
 # ======================================================================
 # lib/util/validate.sh — small validators and sanity checks
 #
-# Functions: require_root, validate_hostname, validate_timezone,
+# Functions: require_root, validate_hostname,
 #            validate_https_url, arch_sanity_banner
 # Globals (read): SYSTEM_ARCH, SYSTEM_PI_GEN
+#
+# Timezone values are validated by validate_timezone_name (strict regex)
+# plus the explicit zoneinfo existence check in run_timezone — do not add
+# a weaker file-exists-only validator back here.
 # ======================================================================
 
 # Abort execution unless running as root.
@@ -17,11 +21,6 @@ require_root() {
 # RFC 1123 label: a-z/0-9/'-', 1..63 chars, no leading/trailing dash.
 validate_hostname() {
   [[ $1 =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]]
-}
-
-# Accept any zone that ships under /usr/share/zoneinfo.
-validate_timezone() {
-  [[ -f "/usr/share/zoneinfo/$1" ]]
 }
 
 # https:// URL validation for key-import URLs. Enforces:

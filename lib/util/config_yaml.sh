@@ -335,8 +335,12 @@ emit_bool("DOCKER_CGROUPV2", docker, "cgroup_v2")
 zram = get(i, "zram", default={})
 emit_bool("INSTALL_ZRAM", zram, "enabled")
 if has(zram, "algo"):
-    algo = get_str(zram, "algo", default="")
-    if algo and algo != "lz4":
+    algo = get_str(zram, "algo", default="").strip().lower()
+    # Mirror the CLI's --zram-algo allowlist so a config.yaml value can't
+    # bypass validation and flow into the systemd zram-generator config.
+    if algo and algo not in ("lz4", "zstd", "disabled"):
+        out.append('echo "pi-optimiser: invalid zram.algo in config (allowed: lz4, zstd, disabled)" >&2')
+    elif algo and algo != "lz4":
         out.append(f'ZRAM_ALGO_OVERRIDE={sv(algo)}')
     elif algo == "lz4":
         out.append('ZRAM_ALGO_OVERRIDE=""')

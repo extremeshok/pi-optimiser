@@ -50,7 +50,7 @@ DefaultLimitNPROC=32768
 CFG
   log_info "Configured $SYSTEMD_USER_LIMITS"
 
-  systemctl daemon-reload >/dev/null 2>&1 || true
+  pi_daemon_reload_now
   if unit_exists systemd-logind.service; then
     systemctl restart systemd-logind >/dev/null 2>&1 || log_warn "systemd-logind restart encountered an issue"
   fi

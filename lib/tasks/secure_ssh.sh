@@ -17,14 +17,11 @@ pi_task_register secure_ssh \
   flags="--secure-ssh" \
   gate_var=SECURE_SSH
 
-# Detect the SSH listen port from sshd_config; fall back to 22. Kept
-# identical to ufw_firewall's helper so both tasks agree on the port.
+# Detect the EFFECTIVE SSH listen port (honours sshd_config.d drop-ins);
+# fall back to 22. Delegates to the shared resolver in lib/util/sshd.sh
+# so secure_ssh and ufw_firewall can never disagree on the port.
 _secure_ssh_port() {
-  local port=""
-  if [[ -r /etc/ssh/sshd_config ]]; then
-    port=$(awk '/^[[:space:]]*Port[[:space:]]+[0-9]+/{print $2; exit}' /etc/ssh/sshd_config 2>/dev/null)
-  fi
-  echo "${port:-22}"
+  pi_sshd_effective_port
 }
 
 run_secure_ssh() {
@@ -176,11 +173,11 @@ DROPIN
   # Reload (not restart) so the live control socket survives and any
   # active SSH session is preserved. Fall back to restart only if reload
   # is unsupported on this init.
-  if systemctl list-unit-files ssh.service >/dev/null 2>&1; then
+  if unit_exists ssh.service; then
     systemctl reload ssh >/dev/null 2>&1 \
       || systemctl restart ssh >/dev/null 2>&1 \
       || log_warn "Unable to reload ssh service"
-  elif systemctl list-unit-files sshd.service >/dev/null 2>&1; then
+  elif unit_exists sshd.service; then
     systemctl reload sshd >/dev/null 2>&1 \
       || systemctl restart sshd >/dev/null 2>&1 \
       || log_warn "Unable to reload sshd service"

@@ -1,6 +1,6 @@
 # >>> pi-task
 # id: libliftoff
-# version: 1.1.0
+# version: 1.2.0
 # description: Disable KMS 'liftoff' to avoid compositor display glitches
 # category: display
 # default_enabled: 1
@@ -11,7 +11,7 @@
 pi_task_register libliftoff \
   description="Disable KMS 'liftoff' to avoid compositor display glitches" \
   category=display \
-  version=1.1.0 \
+  version=1.2.0 \
   default_enabled=1 \
   power_sensitive=1 \
   reboot_required=1
@@ -40,45 +40,70 @@ from pathlib import Path
 cfg_path = Path(os.environ['CONFIG_FILE'])
 lines = cfg_path.read_text().splitlines()
 changed = False
-new_lines = []
-for line in lines:
-    stripped = line.lstrip()
-    prefix = line[:len(line) - len(stripped)]
-    commented = False
+
+def is_kms_overlay(stripped_lower):
+    # Only ACTIVE dtoverlay lines for the KMS driver (or any line that
+    # explicitly mentions liftoff). Commented lines are deliberately
+    # left alone — a `#dtoverlay=vc4-kms-v3d` is the operator opting OUT,
+    # and uncommenting it would activate KMS against their wishes.
+    return stripped_lower.startswith('dtoverlay') and (
+        'vc4-kms-v3d' in stripped_lower or 'liftoff' in stripped_lower)
+
+# Collect the merged option set across EVERY active KMS overlay line and
+# remember the first such position. boot_config (which runs earlier and
+# writes a bare `dtoverlay=vc4-kms-v3d`) can leave a duplicate alongside
+# the one we previously rewrote to `,no-liftoff`; collapsing them here to
+# a single canonical line prevents the duplicate accumulating on re-runs.
+first_idx = None
+merged = []
+seen = set()
+for i, line in enumerate(lines):
+    stripped = line.strip()
     if stripped.startswith('#'):
-        after_hash = stripped[1:].lstrip()
-        if after_hash.lower().startswith('dtoverlay'):
-            stripped = after_hash
-            commented = True
-    lower = stripped.lower()
-    if lower.startswith('dtoverlay') and ('liftoff' in lower or 'vc4-kms-v3d' in lower):
-        try:
-            key, value = stripped.split('=', 1)
-        except ValueError:
-            new_lines.append(prefix + stripped)
+        continue
+    if not is_kms_overlay(stripped.lower()) or '=' not in stripped:
+        continue
+    if first_idx is None:
+        first_idx = i
+    for opt in stripped.split('=', 1)[1].split(','):
+        opt = opt.strip()
+        if opt and opt.lower() not in seen:
+            seen.add(opt.lower())
+            merged.append(opt)
+
+out = []
+if first_idx is not None:
+    # Drop any liftoff-enable token; guarantee exactly one no-liftoff.
+    cleaned = []
+    has_no_liftoff = False
+    for opt in merged:
+        ol = opt.lower()
+        if ol in {'liftoff', 'liftoff=1', 'liftoff=on'}:
             continue
-        opts = [opt for opt in value.split(',') if opt]
-        cleaned_opts = []
-        liftoff_disabled = False
-        for opt in opts:
-            opt_lower = opt.strip().lower()
-            if opt_lower in {'liftoff', 'liftoff=1', 'liftoff=on'}:
+        if ol in {'no-liftoff', 'liftoff=0', 'liftoff=off', 'disable_liftoff=1'}:
+            has_no_liftoff = True
+        cleaned.append(opt)
+    if not has_no_liftoff:
+        cleaned.append('no-liftoff')
+    canonical = 'dtoverlay=' + ','.join(cleaned)
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped.startswith('#') and is_kms_overlay(stripped.lower()) and '=' in stripped:
+            if i == first_idx:
+                prefix = line[:len(line) - len(line.lstrip())]
+                if (prefix + canonical) != line:
+                    changed = True
+                out.append(prefix + canonical)
+            else:
+                # duplicate active KMS overlay line — drop it
                 changed = True
-                continue
-            if opt_lower in {'no-liftoff', 'liftoff=0', 'liftoff=off', 'disable_liftoff=1'}:
-                liftoff_disabled = True
-            cleaned_opts.append(opt)
-        if not liftoff_disabled:
-            cleaned_opts.append('no-liftoff')
-            liftoff_disabled = True
-        new_value = ','.join(cleaned_opts)
-        new_line = f"{key}={new_value}"
-        if commented or new_line != stripped:
-            changed = True
-        stripped = new_line
-    new_lines.append(prefix + stripped)
+            continue
+        out.append(line)
+else:
+    out = lines
+
 if changed:
-    cfg_path.write_text('\n'.join(new_lines) + '\n')
+    cfg_path.write_text('\n'.join(out) + '\n')
 print('changed' if changed else 'unchanged')
 PY
   )

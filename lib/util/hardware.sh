@@ -98,7 +98,7 @@ gather_system_info() {
     # /proc/device-tree/model is NUL-terminated; some images have
     # trailing NULs, spaces, or carriage returns after "Rev 1.0". Strip
     # NUL, CR, LF, then trim leading/trailing whitespace so substring
-    # matches (`*Raspberry Pi 5*`) and case-folded helpers (`is_pi500`)
+    # matches (`*Raspberry Pi 5*`) and case-folded helpers (`is_pi400`)
     # behave consistently across Bookworm/Trixie and custom images.
     SYSTEM_MODEL=$(tr -d '\0\r\n' </proc/device-tree/model || true)
     # Bash parameter expansion trim: remove leading/trailing whitespace.
@@ -117,6 +117,18 @@ gather_system_info() {
     SYSTEM_PI_GEN="3"
   elif [[ $SYSTEM_MODEL == *"Raspberry Pi Zero 2"* ]]; then
     SYSTEM_PI_GEN="zero2"
+  # Compute Modules report as "Raspberry Pi Compute Module N" — which does
+  # NOT contain the "Raspberry Pi N" substring the checks above match, so
+  # without these they fell through to gen "other" and every model-gated
+  # task (KMS overlays, pi5_fan, overclock, ...) silently skipped on a CM.
+  # Map each CM to its Pi-class silicon: CM5/BCM2712 -> 5, CM4(+CM4S)/
+  # BCM2711 -> 4, CM3(+)/BCM2837 -> 3.
+  elif [[ $SYSTEM_MODEL == *"Compute Module 5"* ]]; then
+    SYSTEM_PI_GEN="5"
+  elif [[ $SYSTEM_MODEL == *"Compute Module 4"* ]]; then
+    SYSTEM_PI_GEN="4"
+  elif [[ $SYSTEM_MODEL == *"Compute Module 3"* ]]; then
+    SYSTEM_PI_GEN="3"
   elif [[ $SYSTEM_MODEL == *"Raspberry Pi"* ]]; then
     SYSTEM_PI_GEN="other"
   else

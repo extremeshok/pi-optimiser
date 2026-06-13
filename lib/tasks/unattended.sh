@@ -35,8 +35,6 @@ run_unattended() {
   # back to backup_file, so --undo restores the prior content instead
   # of deleting it.
   record_created "$UNATTENDED_CONF_FILE"
-  record_created "$UNATTENDED_SERVICE"
-  record_created "$UNATTENDED_TIMER"
   cat <<CFG > "$UNATTENDED_CONF_FILE"
 Unattended-Upgrade::Origins-Pattern {
         "origin=${os_origin},codename=${codename}-security";
@@ -59,7 +57,7 @@ CFG
   #   - NoNewPrivileges: intentionally NOT set — dpkg triggers may call
   #     helpers that legitimately need setuid (e.g. /usr/bin/sudo postinst
   #     chmod 4755). Forcing it would break some postinst scripts.
-  cat <<CFG > "$UNATTENDED_SERVICE"
+  write_systemd_unit "$UNATTENDED_SERVICE" <<CFG
 [Unit]
 Description=Run unattended-upgrades (pi-optimiser)
 Documentation=man:unattended-upgrade(8)
@@ -78,7 +76,7 @@ CFG
   # RandomizedDelaySec=30min prevents a thundering-herd against the
   # Debian/Raspbian mirrors when many Pis boot simultaneously (e.g. a
   # fleet coming back online after a site-wide power event).
-  cat <<'CFG' > "$UNATTENDED_TIMER"
+  write_systemd_unit "$UNATTENDED_TIMER" <<'CFG'
 [Unit]
 Description=Run unattended-upgrades every 6 hours (pi-optimiser)
 Documentation=man:unattended-upgrade(8)
@@ -93,6 +91,6 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 CFG
-  systemctl daemon-reload >/dev/null 2>&1 || true
+  pi_daemon_reload_now
   systemctl enable --now pi-unattended-upgrades.timer >/dev/null 2>&1 || log_warn "Could not enable pi-unattended-upgrades.timer"
 }

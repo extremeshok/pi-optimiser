@@ -61,33 +61,22 @@ run_boot_config() {
   backup_file "$CONFIG_TXT_FILE"
   local -a entries=()
   mapfile -t entries < <(_boot_config_entries)
-  local applied=0
-  local entry rc safe_key
-  for entry in "${entries[@]}"; do
-    if ensure_config_line "$entry"; then
-      log_info "Applied $entry to config.txt"
-      safe_key=${entry//=/_}
-      write_json_field "$CONFIG_OPTIMISER_STATE" "boot_config.${safe_key}" "$entry"
-      applied=1
-    else
-      rc=$?
-      if [[ $rc -gt 1 ]]; then
-        log_warn "Failed to ensure $entry in config.txt"
-      fi
-    fi
-  done
-  if [[ $applied -eq 1 ]]; then
-    log_info "Boot config tuned for Raspberry Pi desktop display"
-  else
-    log_info "Boot config already matched recommended defaults"
-  fi
+  # apply_config_entries upserts key=value entries (gpu_mem, disable_overscan,
+  # dtparam=audio=on, framebuffer_*) by key so an existing raspi-config value
+  # is REPLACED rather than leaving a second conflicting line, while the bare
+  # `dtoverlay=vc4-kms-v3d` keeps additive whole-line semantics.
+  local rc=0
+  apply_config_entries "boot_config" all "${entries[@]}" || rc=$?
+  case $rc in
+    0) log_info "Boot config tuned for Raspberry Pi desktop display" ;;
+    1) log_info "Boot config already matched recommended defaults" ;;
+    *) log_warn "One or more boot config entries failed to apply" ;;
+  esac
 }
 
 pi_preview_boot_config() {
   pi_supports_kms_overlays || return 0
-  local target=${CONFIG_TXT_FILE:-/boot/firmware/config.txt}
-  local entry
-  while IFS= read -r entry; do
-    ensure_config_line "$entry" "$target" >/dev/null 2>&1 || true
-  done < <(_boot_config_entries)
+  local -a entries=()
+  mapfile -t entries < <(_boot_config_entries)
+  pi_preview_apply_entries "${entries[@]}"
 }

@@ -17,13 +17,12 @@ pi_task_register ufw_firewall \
   flags="--install-firewall" \
   gate_var=INSTALL_FIREWALL
 
-# Detect the SSH listen port from sshd_config; fall back to 22.
+# Detect the EFFECTIVE SSH listen port (honours sshd_config.d drop-ins);
+# fall back to 22. Delegates to the shared resolver in lib/util/sshd.sh
+# so ufw_firewall and secure_ssh can never disagree on the port — and so
+# enabling UFW can't drop a session listening on a drop-in custom port.
 _ufw_ssh_port() {
-  local port=""
-  if [[ -r /etc/ssh/sshd_config ]]; then
-    port=$(awk '/^[[:space:]]*Port[[:space:]]+[0-9]+/{print $2; exit}' /etc/ssh/sshd_config 2>/dev/null)
-  fi
-  echo "${port:-22}"
+  pi_sshd_effective_port
 }
 
 # Build a fingerprint of everything that influences the rule set. When
@@ -53,6 +52,19 @@ _ufw_fingerprint() {
     [[ "$fp" != *";proxy"* ]] && fp+=";proxy"
   fi
   printf '%s\n' "$fp"
+}
+
+# Re-reconcile the firewall when the inputs that shape the rule set (SSH
+# port, VPN interfaces, proxy) have changed since the last run, comparing
+# the live fingerprint against the stored one. apply_once consults this
+# hook to re-run a completed task without mutating state.json, so it is
+# safe under --dry-run/--diff. Returns 0 (changed) when a re-run is due.
+pi_ufw_firewall_value_changed() {
+  [[ ${INSTALL_FIREWALL:-0} -eq 1 ]] || return 1
+  local current stored
+  current=$(_ufw_fingerprint)
+  stored=$(read_json_field "$CONFIG_OPTIMISER_STATE" "firewall.fingerprint" 2>/dev/null || echo "")
+  [[ -n "$stored" && "$stored" != "$current" ]]
 }
 
 run_ufw_firewall() {

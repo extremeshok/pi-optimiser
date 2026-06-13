@@ -1,15 +1,8 @@
 # ======================================================================
 # lib/util/fstab.sh — /etc/fstab helpers
 #
-# Functions: fstab_append_line, fstab_root_has_option
+# Functions: fstab_append_line
 # ======================================================================
-
-# Return success when /etc/fstab's root entry already declares an option.
-# Matches option names as comma-delimited tokens in the 4th mount column.
-fstab_root_has_option() {
-  local opt=$1
-  grep -E "^[[:space:]]*[^#[:space:]]+[[:space:]]+/[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]]*${opt}([,[:space:]]|$)" /etc/fstab >/dev/null
-}
 
 # Append a complete fstab entry if not already present.
 # Matches on the MNT (2nd column) to avoid duplicate mountpoints. The

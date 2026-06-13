@@ -409,13 +409,21 @@ _pi_tui_apply() {
   # Value-typed gate_vars (hostnames, timezones, URLs) are set via the
   # "values" forms menu; we never coerce them to "1".
   local tid gate
-  local _preserve_wifi=0 _preserve_bt=0 _preserve_zram_disabled=0
+  local _preserve_wifi=0 _preserve_bt=0 _preserve_zram_disabled=0 _preserve_zram_algo=""
   if [[ -n "${PI_TUI_SELECTED[wifi_bt_power]:-}" ]]; then
     _preserve_wifi=${WIFI_POWERSAVE_OFF:-0}
     _preserve_bt=${DISABLE_BLUETOOTH:-0}
   fi
-  if [[ -n "${PI_TUI_SELECTED[zram]:-}" && "${ZRAM_ALGO_OVERRIDE:-}" == "disabled" ]]; then
-    _preserve_zram_disabled=1
+  if [[ -n "${PI_TUI_SELECTED[zram]:-}" ]]; then
+    if [[ "${ZRAM_ALGO_OVERRIDE:-}" == "disabled" ]]; then
+      _preserve_zram_disabled=1
+    elif [[ -n "${ZRAM_ALGO_OVERRIDE:-}" ]]; then
+      # A non-default algo (e.g. zstd) set via config.yaml / CLI must
+      # survive the visited-category reset below, otherwise re-selecting
+      # zram in the storage menu silently downgrades it to the lz4
+      # default both at runtime and in the saved config.yaml.
+      _preserve_zram_algo=$ZRAM_ALGO_OVERRIDE
+    fi
   fi
   # For every category the operator visited, reset that category's
   # binary gates to 0 first. Ticked items in the loop below then
@@ -469,6 +477,8 @@ _pi_tui_apply() {
           ZRAM_ALGO_OVERRIDE=disabled
         else
           INSTALL_ZRAM=1
+          # Restore a non-default algo (zstd) captured before the reset.
+          [[ -n $_preserve_zram_algo ]] && ZRAM_ALGO_OVERRIDE=$_preserve_zram_algo
         fi
         continue
         ;;
@@ -482,6 +492,29 @@ _pi_tui_apply() {
         printf -v "$gate" '%s' 1
         ;;
     esac
+  done
+  # Second pass: tasks in categories the operator never opened keep their
+  # default behaviour, so the TUI's applied set matches what the SAME
+  # config would do from the CLI. Without this:
+  #   - a value-typed task whose value was set only via the Values menu
+  #     (proxy backend, SSH import, hostname/timezone/locale) would be
+  #     saved to config.yaml but never actually run on this Apply; and
+  #   - every default-enabled foundational task (full_upgrade, sysctl,
+  #     fstab, ...) in an unvisited category would be silently dropped.
+  # Visited categories are skipped here because there the checklist ticks
+  # are authoritative (un-ticking must be able to remove a task).
+  local _seen
+  for tid in "${PI_TASK_ORDER[@]}"; do
+    [[ -n "${PI_TUI_SELECTED[$tid]:-}" ]] && continue
+    [[ -n "${PI_TUI_VISITED_CATEGORIES[${PI_TASK_CATEGORY[$tid]}]:-}" ]] && continue
+    if [[ ${PI_TASK_DEFAULT[$tid]:-1} == "1" ]] || _pi_tui_gate_active "$tid"; then
+      # Guard against double-adding (a task is only reached once per loop,
+      # but keep ONLY_TASKS free of duplicates for clean --only semantics).
+      _seen=0
+      local _ot
+      for _ot in "${ONLY_TASKS[@]}"; do [[ "$_ot" == "$tid" ]] && { _seen=1; break; }; done
+      [[ $_seen -eq 0 ]] && ONLY_TASKS+=("$tid")
+    fi
   done
   if (( ${#ONLY_TASKS[@]} == 0 )); then
     _whiptail --msgbox "No tasks selected; nothing to apply." 8 50

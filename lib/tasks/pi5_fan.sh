@@ -20,6 +20,25 @@ pi_task_register pi5_fan \
   gate_var=INSTALL_PI5_FAN_PROFILE \
   reboot_required=1
 
+# Single source of truth for the PWM fan-curve dtparams, consumed by
+# both run_pi5_fan and pi_preview_pi5_fan so --diff matches what is
+# written (and to the same [pi5] section).
+_pi5_fan_entries() {
+  printf '%s\n' \
+    "dtparam=fan_temp0=50000" \
+    "dtparam=fan_temp0_hyst=5000" \
+    "dtparam=fan_temp0_speed=75" \
+    "dtparam=fan_temp1=60000" \
+    "dtparam=fan_temp1_hyst=5000" \
+    "dtparam=fan_temp1_speed=125" \
+    "dtparam=fan_temp2=67000" \
+    "dtparam=fan_temp2_hyst=5000" \
+    "dtparam=fan_temp2_speed=200" \
+    "dtparam=fan_temp3=75000" \
+    "dtparam=fan_temp3_hyst=5000" \
+    "dtparam=fan_temp3_speed=255"
+}
+
 run_pi5_fan() {
   if [[ $INSTALL_PI5_FAN_PROFILE -eq 0 ]]; then
     log_info "Pi 5 fan profile not requested; skipping"
@@ -37,46 +56,24 @@ run_pi5_fan() {
     return 2
   fi
   backup_file "$CONFIG_TXT_FILE"
-  local -a entries=(
-    "dtparam=fan_temp0=50000"
-    "dtparam=fan_temp0_hyst=5000"
-    "dtparam=fan_temp0_speed=75"
-    "dtparam=fan_temp1=60000"
-    "dtparam=fan_temp1_hyst=5000"
-    "dtparam=fan_temp1_speed=125"
-    "dtparam=fan_temp2=67000"
-    "dtparam=fan_temp2_hyst=5000"
-    "dtparam=fan_temp2_speed=200"
-    "dtparam=fan_temp3=75000"
-    "dtparam=fan_temp3_hyst=5000"
-    "dtparam=fan_temp3_speed=255"
-  )
-  local entry rc applied=0
+  local -a entries=()
+  mapfile -t entries < <(_pi5_fan_entries)
   # Pi 5 fan dtparams live under [pi5] so a user file ending in
   # [none] or [pi4] doesn't silently swallow the fan curve.
-  for entry in "${entries[@]}"; do
-    rc=0
-    ensure_config_key_value "$entry" "$CONFIG_TXT_FILE" pi5 || rc=$?
-    if [[ $rc -eq 0 ]]; then
-      applied=1
-    elif [[ $rc -gt 1 ]]; then
-      log_warn "Failed to apply $entry"
-    fi
-  done
-  if [[ $applied -eq 1 ]]; then
-    log_info "Applied Pi 5 PWM fan curve (50/60/67/75 C)"
-  else
-    log_info "Pi 5 fan curve already present"
-  fi
+  local rc=0
+  apply_config_entries "" pi5 "${entries[@]}" || rc=$?
+  case $rc in
+    0) log_info "Applied Pi 5 PWM fan curve (50/60/67/75 C)" ;;
+    1) log_info "Pi 5 fan curve already present" ;;
+    *) log_warn "One or more fan dtparams failed to apply" ;;
+  esac
   write_json_field "$CONFIG_OPTIMISER_STATE" "fan.profile" "pi5_50_60_67_75"
 }
 
 pi_preview_pi5_fan() {
   [[ ${INSTALL_PI5_FAN_PROFILE:-0} -eq 0 ]] && return 0
   is_pi5 || return 0
-  pi_preview_apply_entries \
-    "dtparam=fan_temp0=50000" "dtparam=fan_temp0_hyst=5000" "dtparam=fan_temp0_speed=75" \
-    "dtparam=fan_temp1=60000" "dtparam=fan_temp1_hyst=5000" "dtparam=fan_temp1_speed=125" \
-    "dtparam=fan_temp2=67000" "dtparam=fan_temp2_hyst=5000" "dtparam=fan_temp2_speed=200" \
-    "dtparam=fan_temp3=75000" "dtparam=fan_temp3_hyst=5000" "dtparam=fan_temp3_speed=255"
+  local -a entries=()
+  mapfile -t entries < <(_pi5_fan_entries)
+  pi_preview_apply_entries --section pi5 "${entries[@]}"
 }

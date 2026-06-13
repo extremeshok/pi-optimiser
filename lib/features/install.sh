@@ -153,11 +153,17 @@ pi_rollback_release() {
   if [[ -L "$PI_PREFIX/current" ]]; then
     current_target=$(readlink -f "$PI_PREFIX/current")
   fi
-  # Pick the newest release that isn't the current target.
+  # Pick the newest release that isn't the current target. Resolve BOTH
+  # sides with readlink -f before comparing: current_target is already
+  # fully resolved, so comparing it against the unresolved "$releases/
+  # $entry" string would falsely treat the current release as a rollback
+  # candidate whenever any path component (e.g. PI_PREFIX) is itself a
+  # symlink — flipping `current` to the release it already points at.
   mapfile -t candidates < <(ls -1t "$releases" 2>/dev/null)
-  local entry
+  local entry entry_real
   for entry in "${candidates[@]}"; do
-    if [[ "$releases/$entry" != "$current_target" ]]; then
+    entry_real=$(readlink -f "$releases/$entry" 2>/dev/null || echo "$releases/$entry")
+    if [[ "$entry_real" != "$current_target" ]]; then
       previous="$releases/$entry"
       break
     fi

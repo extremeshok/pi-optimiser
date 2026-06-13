@@ -41,6 +41,29 @@ jobs:
             *) echo "unexpected ref_name: $REF_NAME" >&2; exit 1 ;;
           esac
 
+      - name: Verify version matches tag
+        # A release whose SCRIPT_VERSION or man-page footer disagrees with
+        # the tag ships an installer that reports the wrong version and
+        # makes --check-update comparisons wrong. Fail rather than publish
+        # the mismatch. REF_NAME flows in via env (not inline ${{ }}) so a
+        # crafted ref can't inject shell.
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          expected="${REF_NAME#v}"
+          expected="${expected%%-*}"   # strip any -rc/-beta pre-release suffix
+          script_ver=$(sed -n 's/^SCRIPT_VERSION="\([^"]*\)".*/\1/p' pi-optimiser.sh | head -1)
+          if [[ "$script_ver" != "$expected" ]]; then
+            echo "SCRIPT_VERSION ($script_ver) does not match tag ($expected)" >&2
+            exit 1
+          fi
+          man_ver=$(sed -n 's/^footer: pi-optimiser \(.*\)$/\1/p' share/man/pi-optimiser.8.md | head -1)
+          if [[ -n "$man_ver" && "$man_ver" != "$expected" ]]; then
+            echo "man page footer ($man_ver) does not match tag ($expected)" >&2
+            exit 1
+          fi
+          echo "Version $expected matches tag, SCRIPT_VERSION, and man footer."
+
       - name: Build bundle
         env:
           REF_NAME: ${{ github.ref_name }}

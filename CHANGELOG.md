@@ -1,5 +1,103 @@
 # Changelog
 
+## 9.5.0 — 2026-06-13
+
+Hardening release from a full multi-agent audit. Two critical fixes, a
+batch of correctness/security fixes, several safer defaults, and a round
+of de-duplication. Re-run after upgrading; affected tasks bump their
+version so corrected values re-apply automatically.
+
+### Fixed (critical)
+- **config.txt `dtparam=` lines no longer clobber each other.**
+  `ensure_config_key_value` keyed every `dtparam=NAME=value` line on the
+  bare word `dtparam`, so writing one (e.g. `--disable-leds`,
+  `--enable-watchdog`, `--pcie-gen3`) overwrote/deleted unrelated stock
+  `dtparam` lines — silently disabling onboard audio, I2C and SPI. The
+  `dtparam`/`dtoverlay` families are now keyed by parameter name so
+  distinct settings coexist. If a prior run damaged your config.txt,
+  `--undo <task>` restores the pre-change backup.
+- **UFW no longer locks you out on a custom SSH port.** SSH-port
+  detection now reads the effective config via `sshd -T`, honouring
+  `/etc/ssh/sshd_config.d/*.conf` drop-ins (the canonical place to set
+  `Port` on Bookworm/Trixie). Previously the firewall opened 22 while
+  sshd listened elsewhere, dropping the operator's session on enable;
+  fail2ban was also jailing the wrong port.
+
+### Fixed (high)
+- **`--force` no longer wipes completion markers** of opt-in tasks that
+  aren't re-requested; the pre-clear is now gated on the task actually
+  running. `--diff` and `--dry-run` no longer mutate `state.json` (the
+  proxy/ufw re-run detection moved to dry-run-safe `value_changed` hooks).
+- **`ipv6_disable` is now reversible** — it records the sysctl file it
+  creates so `--undo` actually removes it (and IPv6 comes back).
+- **`boot_config` replaces existing keys** (`gpu_mem`, `disable_overscan`,
+  …) instead of appending a second conflicting line.
+- **`usb_uas_quirks` merges** with any existing `usb-storage.quirks=`
+  token instead of appending a duplicate the kernel would ignore.
+- **`tailscale` installs via `ensure_packages`** so a held dpkg lock no
+  longer fails the task.
+- **`var_log_tmpfs` journal archive** is now mode 0600 under
+  `/var/backups` (was world-readable in `/var/log`, leaking journal
+  contents on multi-user hosts).
+- **Snapshot/restore consistency** — `config-optimisations.json` is now
+  excluded from snapshots like `state.json`, so `--restore` can't desync
+  the two state files.
+- **TUI**: a non-default ZRAM algorithm (zstd) survives the storage menu;
+  value-typed tasks (proxy backend, SSH import) set via the Values menu
+  now actually run; default-enabled tasks in unvisited categories are no
+  longer dropped on Apply.
+
+### Changed (safer defaults — please review)
+- **IP forwarding is no longer enabled by default.** The default `sysctl`
+  task previously turned every Pi into a router (`ip_forward=1`); single-
+  homed hosts no longer get it. Routers/VPN gateways should set it
+  explicitly.
+- **Raspberry Pi Connect is no longer purged** by the default
+  `remove_bloat` run — it is a first-party remote-access tool, not demo
+  bloat.
+- **`rsyslog` is no longer disabled** by `disable_services`. Combined
+  with volatile journald + tmpfs `/var/log` it had left no persistent
+  log after reboot; the `journald` task now also logs that the journal
+  is RAM-only and how to make it persistent.
+
+### Fixed (correctness)
+- `dns_cache` backs up an existing `/etc/resolv.conf` (including a
+  symlink) before repointing it, so `--undo` restores the prior resolver.
+- `eeprom_config` records the bootloader-config backup path and the
+  manual revert command (the file-based `--undo` can't reflash EEPROM).
+- `config.yaml` `zram.algo` is validated against the CLI allowlist.
+- Compute Module 4/5 (and CM3) are now mapped to their Pi-class
+  generation, so model-gated tasks (KMS, fan, overclock) stop skipping
+  on a CM.
+- `--diff` no longer launches the interactive TUI on a TTY; the
+  menu-skip flag set is now derived from the task registry so it can't
+  drift out of sync with the tasks.
+- `pi_rollback_release` resolves both paths before comparing, so it can't
+  "roll back" to the release it's already on.
+- `libliftoff` no longer uncomments a deliberately-disabled
+  `#dtoverlay=vc4-kms-v3d`, and collapses duplicate KMS overlay lines.
+- `install.sh` distinguishes a 404 ref from a network error, and no
+  longer prints "Verified" wording that could outlast the verified bytes.
+
+### Refactored
+- New `apply_config_entries` / `pi_curl_secure` / `pi_add`-style
+  `write_systemd_unit` helpers collapse loops duplicated across the
+  config.txt, downloader, and systemd-unit tasks; run and `--diff`
+  previews now share a single entry source per task (eliminating the
+  stale-diff class). `oc_conservative` / `underclock` use one per-model
+  table. Removed dead `validate_timezone`, `is_pi500`,
+  `fstab_root_has_option`; gave `pi_daemon_reload_now` real callers;
+  implemented `pi_supports_eeprom` for an accurate `--self-test` label;
+  replaced inline `systemctl list-unit-files` checks with `unit_exists`.
+
+### CI / tests
+- Release workflow fails if the tag, `SCRIPT_VERSION`, and man-page
+  footer disagree. ShellCheck/`bash -n` now also cover the test harness
+  and Pi-binary stubs. Integration matrix runs against **both** Debian
+  Trixie and Bookworm. The stub invocation log is now exercised by a
+  test (it was previously dead). Bundle "shebang parity" gate now
+  actually checks the shebang.
+
 ## 9.4.5 — 2026-04-24
 
 ### Fixed

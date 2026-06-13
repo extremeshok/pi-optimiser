@@ -32,6 +32,12 @@ jobs:
             [[ -f "$f" ]] && bash -n "$f"
           done
           bash -n install.sh
+          # The test harness and the Pi-binary stubs are shell too — a
+          # broken stub silently weakens every integration run, so syntax-
+          # check them here as well.
+          for f in tests/docker/run-tests.sh tests/docker/stubs/*; do
+            [[ -f "$f" ]] && bash -n "$f"
+          done
 
       - name: ShellCheck
         run: |
@@ -42,7 +48,9 @@ jobs:
             lib/features/*.sh \
             lib/ui/*.sh \
             scripts/*.sh \
-            install.sh
+            install.sh \
+            tests/docker/run-tests.sh \
+            tests/docker/stubs/*
 
       - name: --help smoke test
         run: |

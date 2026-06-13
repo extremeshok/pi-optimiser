@@ -1759,4 +1759,22 @@ bundle_policy_scan=$(grep -InE "$generic_pat|$service_pat|$footer_pat" "$TEST_TM
   || fail "generated bundle contains prohibited references" "$bundle_policy_scan"
 pass "bundle (9.3 flags present)"
 
+step "stub log: preflight actually reaches the Pi-binary stubs"
+# The stubs log every invocation to $PI_OPTIMISER_STUB_LOG. Asserting the
+# log is populated proves a code path genuinely exercised vcgencmd (rather
+# than trivially passing by skipping). Guarded on the stub being our
+# logging stub so the test is a no-op outside the Docker image.
+if command -v vcgencmd >/dev/null 2>&1 && grep -q PI_OPTIMISER_STUB_LOG "$(command -v vcgencmd)" 2>/dev/null; then
+  stub_log="$TEST_TMP/stub.log"
+  : > "$stub_log"
+  PI_OPTIMISER_STUB_LOG="$stub_log" "$BIN" --report >/dev/null 2>&1 || true
+  if [[ -s "$stub_log" ]] && grep -q '^vcgencmd' "$stub_log"; then
+    pass "stub log captured vcgencmd invocations from preflight"
+  else
+    fail "stub log empty after --report — preflight never reached vcgencmd" "$(cat "$stub_log" 2>/dev/null)"
+  fi
+else
+  pass "stub log (skipped: no logging vcgencmd stub on PATH)"
+fi
+
 printf '\nAll integration checks passed.\n'

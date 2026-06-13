@@ -41,6 +41,23 @@ _proxy_redact_url() {
   printf '%s' "$url"
 }
 
+# Re-run the proxy task when the requested backend differs from what was
+# last applied (recorded as proxy.backend in state). apply_once consults
+# this hook to bypass the already-completed short-circuit and re-run the
+# task WITHOUT mutating state.json, so it is safe under --dry-run/--diff —
+# unlike the old hard-coded clear_task_state block in main(). Returns 0
+# (changed) to force a re-run, 1 otherwise.
+pi_proxy_value_changed() {
+  [[ -n "${PROXY_BACKEND:-}" ]] || return 1
+  local stored
+  if stored=$(get_stored_proxy_backend); then
+    [[ "$stored" != "$PROXY_BACKEND" ]]
+  else
+    # A backend is requested but none is on record — treat as changed.
+    return 0
+  fi
+}
+
 run_proxy() {
   if [[ -z "$PROXY_BACKEND" ]]; then
     log_info "Proxy support not requested; skipping proxy configuration"
@@ -58,7 +75,7 @@ run_proxy() {
       backup_file "$conf"
       rm -f "$conf"
     fi
-    if systemctl list-unit-files nginx.service >/dev/null 2>&1; then
+    if unit_exists nginx.service; then
       systemctl stop nginx >/dev/null 2>&1 || true
       systemctl disable nginx >/dev/null 2>&1 || log_warn "Unable to disable nginx service"
     fi
