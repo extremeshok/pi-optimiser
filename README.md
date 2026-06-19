@@ -20,9 +20,9 @@ Set up a Raspberry Pi faster, safer, and with less guesswork.
 - **Built for real Raspberry Pi deployments**: Pi 5/500, Pi 4/400, Pi 3, and Pi Zero 2 are first-class targets, with hardware-aware defaults and preflight checks.
 
 ## Common Use Cases
-- **Headless server / homelab node**: start with `server` for hardened SSH, firewall, DNS cache, node exporter, smartmontools, and LED-off defaults.
+- **Headless server / homelab node**: start with `server` for hardened SSH, firewall, the omniban ban manager, DNS cache, node exporter, smartmontools, and LED-off defaults.
 - **Daily desktop Pi**: start with `desktop` when you want the guided setup flow but prefer a lighter touch on services and swap.
-- **Kiosk / signage box**: use `kiosk` for screen-first deployments that need quiet boot, ZRAM, and reliable Wi-Fi.
+- **Kiosk / signage box**: use `kiosk` for screen-first deployments that need quiet boot, ZRAM, reliable Wi-Fi, and the kiosk-monitor fullscreen watchdog.
 - **Small remote or IoT system**: use `headless-iot` for watchdog, Bluetooth-off, underclock, quiet boot, and low-overhead headless defaults.
 
 ## What You Get
@@ -227,6 +227,13 @@ For non-interactive runs, combine flags as needed, for example:
 sudo ./pi-optimiser.sh --install-tailscale --proxy-backend http://127.0.0.1:8080 --secure-ssh
 ```
 
+Harden a headless box and add the omniban ban manager, or set up a
+signage Pi with the kiosk-monitor watchdog:
+```bash
+sudo ./pi-optimiser.sh --secure-ssh --install-firewall --install-omniban --yes
+sudo ./pi-optimiser.sh --profile kiosk --install-kiosk-monitor --yes
+```
+
 To force the menu on an installed system:
 ```bash
 sudo pi-optimiser --tui
@@ -240,43 +247,66 @@ sudo pi-optimiser --no-tui --profile server --yes
 ## Tasks & Behaviour
 The script executes these tasks in order unless skipped. **Optional** tasks require their respective flags.
 
+Tasks are listed below in execution order. A dagger (†) marks an opt-in task that only acts when its flag (or a profile / config value) is supplied; unmarked tasks run by default on every invocation.
+
 | Task ID | Purpose |
 |---------|---------|
 | `full_upgrade` | **Always runs first on every invocation.** `apt-get update && full-upgrade && autoremove && autoclean`, fully non-interactive. Not idempotent by design — reruns every time to keep packages current. |
 | `remove_bloat` | Purge bundled educational/demo packages and clean apt caches. |
-| `fstab` | Add `noatime` + longer commit interval to `/`. |
-| `tmpfs_tmp` | Mount `/tmp` on tmpfs (200 MB). |
-| `var_log_tmpfs` | Move `/var/log` to tmpfs (50 MB) and recreate structure via tmpfiles. |
-| `disable_swap` | Disable `dphys-swapfile` and turn off swap. |
-| `zram` † | Configure compressed swap (requires `--install-zram`; override/disable with `--zram-algo`). |
-| `fstrim` | Enable `fstrim.timer` for periodic SSD/NVMe TRIM. |
-| `journald` | Keep the journal in RAM with 50 MB runtime limit. |
 | `sysctl` | Apply writeback, swappiness, inotify, and net backlog tweaks. |
 | `cpu_governor` | Install a systemd unit that pins the CPU scaling governor to `performance` on every boot. |
 | `apt_conf` | Harden unattended apt jobs and trim caches. |
-| `unattended` | Configure security-only unattended upgrades on a 6‑hour timer. |
+| `unattended` | Configure security-only unattended upgrades on a 6-hour timer. |
 | `cli_tools` | Install useful CLI utilities (`htop`, `tmux`, `pigz`, etc.). |
-| `locale` | Set `/etc/default/locale` when `--locale` is provided. |
+| `chrony` † | Replace `systemd-timesyncd` with `chrony` for robust time sync on flaky-network Pis (`--install-chrony`). |
+| `fstab` | Add `noatime` + longer commit interval to `/`. |
+| `tmpfs_tmp` | Mount `/tmp` on tmpfs (200 MB). |
+| `journald` | Keep the journal in RAM with 50 MB runtime limit. |
+| `var_log_tmpfs` | Move `/var/log` to tmpfs (50 MB) and recreate structure via tmpfiles. |
+| `disable_swap` | Disable `dphys-swapfile` and turn off swap. |
+| `zram` † | Configure compressed swap (requires `--install-zram`; override/disable with `--zram-algo`). |
+| `fstrim` | Enable `fstrim.timer` for periodic SSD/NVMe TRIM. |
+| `nvme_tune` † | Disable NVMe APST for compatibility with some Pi 5 NVMe HATs (`--nvme-tune`). |
+| `usb_uas_quirks` † | Disable UAS on known-broken USB-SATA adapters; auto-detects, plus extra `VID:PID` pairs via `--usb-uas-extra` (`--usb-uas-quirks`). |
+| `locale` † | Set `/etc/default/locale` when `--locale` is provided. |
 | `timezone` † | Set the system timezone when `--timezone` is provided. |
 | `hostname` † | Set the system hostname when `--hostname` is provided. |
 | `limits` | Raise user/system file descriptor and process limits. |
 | `screen_blanking` | Disable console + LightDM blanking (unless `--keep-screen-blanking`). |
 | `disable_services` | Turn off non-essential services: `triggerhappy`, `bluetooth`, `hciuart`, `avahi-daemon`, `cups`, `rsyslog` (journald keeps all logs). |
+| `quiet_boot` † | Hide the rainbow splash and silence the kernel log at boot (`--quiet-boot`). |
+| `disable_leds` † | Turn off activity/power/ethernet LEDs for headless or rack use (`--disable-leds`). |
+| `headless_gpu_mem` † | Shrink the GPU memory split to 16 MB on headless Pi 4 and older; no-op on Pi 5 (`--headless-gpu-mem`). |
 | `proxy` † | Manage the NGINX reverse proxy (`--proxy-backend URL` or disable). |
-| `boot_config` † | Apply display-friendly defaults for Pi 4/400 and Pi 5/500 firmware. |
-| `libliftoff` † | Ensure vc4 KMS overlays disable liftoff to curb compositor glitches. |
-| `oc_conservative` † | Overclock per model — Pi 5/500 to 2.8 GHz, Pi 4/400/3/Zero 2 firmware-safe clocks. |
-| `eeprom_config` | Tune bootloader EEPROM `SDRAM_BANKLOW` (Pi 5/500 → 1, Pi 4/400 → 3) via `rpi-eeprom-config --apply`. |
+| `dns_cache` † | Enable the `systemd-resolved` stub DNS cache for faster lookups (`--enable-dns-cache`). |
+| `wifi_bt_power` † | Keep Wi-Fi awake (`--wifi-powersave-off`) and optionally disable the Bluetooth stack (`--disable-bluetooth`). |
+| `node_exporter` † | Export system metrics for Prometheus on `:9100` via `prometheus-node-exporter` (`--install-node-exporter`). |
+| `tailscale` † | Install/enable Tailscale repository and service (`--install-tailscale`). |
+| `wireguard` † | Install `wireguard-tools` (mutex with Tailscale unless `--allow-both-vpn`); configure `/etc/wireguard` yourself (`--install-wireguard`). |
+| `ipv6_disable` † | Disable IPv6 via a restorable sysctl drop-in (`--disable-ipv6`). |
+| `boot_config` | Apply display-friendly defaults for Pi 4/400 and Pi 5/500 firmware. |
+| `libliftoff` | Ensure vc4 KMS overlays disable liftoff to curb compositor glitches. |
+| `thermal_thresholds` † | Set firmware thermal limits — `--temp-limit`, `--temp-soft-limit`, `--initial-turbo`. |
+| `oc_conservative` † | Overclock per model — Pi 5/500 to 2.8 GHz, Pi 4/400/3/Zero 2 firmware-safe clocks (`--overclock-conservative`). |
+| `underclock` † | Apply a low-power underclock profile (conflicts with `--overclock-conservative`) (`--underclock`). |
 | `pi5_fan` † | Pi 5/500 PWM fan curve (50/60/67/75 C) via `dtparam=fan_temp*` (`--pi5-fan-profile`). |
+| `pcie_gen3` † | Enable Pi 5 PCIe Gen 3 (`dtparam=pciex1_gen=3`) for faster NVMe HATs — unofficial (`--pcie-gen3`). |
+| `eeprom_config` | Tune bootloader EEPROM `SDRAM_BANKLOW` (Pi 5/500 → 1, Pi 4/400 → 3) via `rpi-eeprom-config --apply`. |
 | `watchdog` † | Enable hardware watchdog and wire systemd to feed it (`--enable-watchdog`). |
 | `ssh_import` † | Import `authorized_keys` from GitHub/URL (`--ssh-import-github`, `--ssh-import-url`). |
-| `secure_ssh` † | Harden sshd (no root login) and enable fail2ban sshd jail. |
+| `secure_ssh` † | Harden sshd (no root login) and enable fail2ban sshd jail (`--secure-ssh`). |
+| `ufw_firewall` † | Install UFW with deny-inbound + allow-outbound; auto-opens SSH, active VPN, and proxy ports (`--install-firewall`). |
 | `omniban` † | Install the omniban unified firewall/IDS ban manager (`--install-omniban`); auto-detects installed ban backends. |
-| `tailscale` † | Install/enable Tailscale repository and service. |
-| `docker` † | Install Docker Engine (preferred repo or distro fallback). |
+| `cli_bundle_modern` † | Install a modern CLI bundle — `ncdu`, `ripgrep`, `fd`, `bat`, `neovim` (`--install-cli-modern`). |
+| `net_diag_bundle` † | Install network-diagnostic tools — `nmap`, `iperf3`, `tcpdump` (`--install-net-diag`). |
+| `smartmontools` † | Monitor NVMe/SSD health with `smartmontools` + `smartd` (`--install-smartmontools`). |
+| `docker` † | Install Docker Engine (preferred repo or distro fallback) (`--install-docker`). |
+| `pi_connect` † | Install Raspberry Pi Connect for browser-based remote access; pair with `rpi-connect signin` (`--install-pi-connect`). |
+| `hailo` † | Pi 5/500: install the Hailo NPU driver stack for Hailo HAT hardware (`--install-hailo`). |
 | `kiosk_monitor` † | Install the kiosk-monitor fullscreen Chromium/VLC watchdog (`--install-kiosk-monitor`); configure with `sudo kiosk-monitor --reconfig`. |
 | `eeprom_refresh` † | Refresh bootloader EEPROM via `rpi-eeprom-update -a` (`--eeprom-update`). |
 | `firmware_update` † | Run `rpi-update` non-interactively to pull the latest firmware (`--firmware-update`). |
+| `power_off_halt` † | Pi 5: cut 3V3 power on shutdown for ~0.01 W idle; disable if HATs need 3V3 (`--power-off-halt`). |
 
 † Runs only when the associated flag is supplied (or when explicitly disabling).
 
