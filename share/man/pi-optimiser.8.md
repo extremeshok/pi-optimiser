@@ -2,7 +2,7 @@
 title: PI-OPTIMISER
 section: 8
 header: System Manager's Manual
-footer: pi-optimiser 9.5.0
+footer: pi-optimiser 9.6.0
 date: 2026-06
 ---
 
@@ -243,6 +243,24 @@ Probes `lspci` for the Hailo device and warns on kernels older
 than 6.6.31 (where `hailo-dkms` fails to build). Reboots required
 for the DKMS module to attach. Pair with `--pcie-gen3` for full
 Hailo HAT throughput.
+
+**--install-omniban**
+: Install omniban, a single static binary that centralises IP-ban
+management across fail2ban, CrowdSec, sshguard, UFW, firewalld,
+nftables, iptables, ipset and other backends. No daemon and no
+config — it auto-detects whichever security tools are installed.
+Runs after `secure_ssh` and `ufw_firewall` so those backends exist
+to detect. Run `sudo omniban` for the TUI afterwards. Enabled by the
+`server` profile.
+
+**--install-kiosk-monitor**
+: Install kiosk-monitor, a self-healing watchdog that launches
+fullscreen Chromium or VLC on one or two HDMI displays and restarts
+a frozen instance automatically. Targets Raspberry Pi OS trixie
+Desktop or newer (labwc Wayland, with X11 fallback). Installs the
+binary plus the `kiosk-monitor.service` systemd unit; set the screen
+URL/mode afterwards with `sudo kiosk-monitor --reconfig`. Enabled by
+the `kiosk` profile.
 
 # SELF-UPDATE (opt-in)
 

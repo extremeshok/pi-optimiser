@@ -1,5 +1,31 @@
 # Changelog
 
+## 9.6.0 — 2026-06-19
+
+Two new opt-in integrations. Both are off by default and reachable from
+a profile; re-run after upgrading to pick them up.
+
+### Added
+- **`omniban` task (`--install-omniban`).** Installs
+  [omniban](https://github.com/extremeshok/omniban), a single static
+  binary that centralises IP-ban management across fail2ban, CrowdSec,
+  sshguard, UFW, firewalld, nftables, iptables, ipset and other
+  backends. No daemon and no config — it auto-detects whichever security
+  tools are installed. Runs after `secure_ssh` and `ufw_firewall` in the
+  manifest so those backends already exist to detect, and is enabled by
+  the `server` profile. The upstream installer is fetched over the
+  hardened `pi_curl_secure` TLS channel to a temp file and run from disk
+  (not a blind `curl | bash`); `--undo omniban` removes the binary.
+- **`kiosk_monitor` task (`--install-kiosk-monitor`).** Installs
+  [kiosk-monitor](https://github.com/extremeshok/kiosk-monitor), a
+  self-healing watchdog that launches fullscreen Chromium or VLC on one
+  or two HDMI displays and restarts a frozen instance automatically.
+  Targets Raspberry Pi OS trixie Desktop or newer (labwc Wayland, X11
+  fallback). Installs the binary plus the `kiosk-monitor.service`
+  systemd unit; set the screen URL/mode afterwards with `sudo
+  kiosk-monitor --reconfig`. Enabled by the `kiosk` profile. `--undo
+  kiosk_monitor` removes the binary, unit, and config.
+
 ## 9.5.0 — 2026-06-13
 
 Hardening release from a full multi-agent audit. Two critical fixes, a

@@ -40,6 +40,7 @@ _pi_optimiser() {
     --disable-leds --install-pi-connect --remove-cups
     --headless-gpu-mem --install-chrony --disable-ipv6
     --usb-uas-quirks --usb-uas-extra --install-hailo
+    --install-omniban --install-kiosk-monitor
     --completion --help --version
   "
 
@@ -182,6 +183,8 @@ _pi_optimiser() {
     '--usb-uas-quirks[disable UAS on known-bad USB-SATA adapters]'
     '--usb-uas-extra[extra VID:PID pairs for UAS quirks]:pairs:'
     '--install-hailo[Pi 5: install Hailo NPU drivers]'
+    '--install-omniban[install omniban firewall/IDS ban manager]'
+    '--install-kiosk-monitor[install kiosk-monitor fullscreen kiosk watchdog]'
     '--completion[emit completion script]:shell:(bash zsh)'
     '--help[show help]'
     '--version[show version]'

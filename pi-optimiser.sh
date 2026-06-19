@@ -3,7 +3,7 @@
 # Coded by Adrian Jon Kriel :: admin@extremeshok.com
 # Project home: https://github.com/extremeshok/pi-optimiser
 # ======================================================================
-# pi-optimiser.sh :: version 9.5.0
+# pi-optimiser.sh :: version 9.6.0
 #======================================================================
 # One-shot optimiser for Raspberry Pi OS desktops. Key capabilities:
 #   - Removes bundled bloatware and trims apt caches for a lean install
@@ -35,7 +35,7 @@ fi
 
 SCRIPT_NAME=$(basename "$0")
 readonly SCRIPT_NAME
-SCRIPT_VERSION="9.5.0"
+SCRIPT_VERSION="9.6.0"
 readonly SCRIPT_VERSION
 
 # Globals consumed by sourced lib/util/*.sh modules; shellcheck cannot
@@ -180,6 +180,8 @@ DISABLE_IPV6=0
 USB_UAS_QUIRKS=0
 USB_UAS_EXTRA=""
 INSTALL_HAILO=0
+INSTALL_OMNIBAN=0
+INSTALL_KIOSK_MONITOR=0
 
 # P6 additions — metrics, watch mode, per-task freeze, diff-preview.
 # shellcheck disable=SC2034  # read by lib/features/metrics.sh
@@ -439,6 +441,8 @@ Options:
   --usb-uas-quirks       Auto-detect known-bad USB-SATA adapters and disable UAS
   --usb-uas-extra <list> Extra VID:PID pairs for UAS quirks (comma-separated)
   --install-hailo        Pi 5: install Hailo NPU drivers for Hailo HAT hardware
+  --install-omniban      Install omniban, the unified firewall/IDS ban manager
+  --install-kiosk-monitor Install kiosk-monitor, the self-healing fullscreen kiosk watchdog
   --profile <name>       Apply flag bundle: kiosk | server | desktop | headless-iot
   --report               Print a human-readable state report and exit
   --snapshot             Tar key config files to /etc/pi-optimiser/snapshots and exit
@@ -1021,6 +1025,8 @@ parse_args() {
         USB_UAS_EXTRA=$2; USB_UAS_QUIRKS=1; shift
         ;;
       --install-hailo)       INSTALL_HAILO=1 ;;
+      --install-omniban)     INSTALL_OMNIBAN=1 ;;
+      --install-kiosk-monitor) INSTALL_KIOSK_MONITOR=1 ;;
       --docker-cgroupv2)      DOCKER_CGROUPV2=1 ;;
       --yes|-y|--non-interactive) PI_NON_INTERACTIVE=1 ;;
       --uninstall)           PI_UNINSTALL=1 ;;

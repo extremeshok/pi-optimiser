@@ -15,8 +15,8 @@ pi_list_profiles() {
     cat <<'JSON'
 {
   "profiles": [
-    { "name": "kiosk",        "enables": ["INSTALL_ZRAM", "WIFI_POWERSAVE_OFF", "SECURE_SSH", "QUIET_BOOT"] },
-    { "name": "server",       "enables": ["INSTALL_ZRAM", "SECURE_SSH", "INSTALL_SMARTMONTOOLS", "INSTALL_NODE_EXPORTER", "ENABLE_DNS_CACHE", "INSTALL_FIREWALL", "DISABLE_LEDS", "HEADLESS_GPU_MEM", "KEEP_SCREEN_BLANKING"] },
+    { "name": "kiosk",        "enables": ["INSTALL_ZRAM", "WIFI_POWERSAVE_OFF", "SECURE_SSH", "QUIET_BOOT", "INSTALL_KIOSK_MONITOR"] },
+    { "name": "server",       "enables": ["INSTALL_ZRAM", "SECURE_SSH", "INSTALL_SMARTMONTOOLS", "INSTALL_NODE_EXPORTER", "ENABLE_DNS_CACHE", "INSTALL_FIREWALL", "INSTALL_OMNIBAN", "DISABLE_LEDS", "HEADLESS_GPU_MEM", "KEEP_SCREEN_BLANKING"] },
     { "name": "desktop",      "enables": ["INSTALL_CLI_MODERN"] },
     { "name": "headless-iot", "enables": ["INSTALL_WATCHDOG", "DISABLE_BLUETOOTH", "WIFI_POWERSAVE_OFF", "REQUEST_UNDERCLOCK", "DISABLE_LEDS", "QUIET_BOOT", "HEADLESS_GPU_MEM", "KEEP_SCREEN_BLANKING"] }
   ]
@@ -27,9 +27,10 @@ JSON
   cat <<'EOF'
 Profiles:
   kiosk         HDMI kiosk — ZRAM, Wi-Fi never sleeps, SSH hardened,
-                quiet boot (no rainbow splash).
+                quiet boot (no rainbow splash), kiosk-monitor watchdog.
   server        Headless server — ZRAM, hardened SSH, smartd,
-                node_exporter, DNS cache, UFW firewall, LEDs off.
+                node_exporter, DNS cache, UFW firewall, omniban ban
+                manager, LEDs off.
   desktop       GUI Pi — modern CLI bundle; leave swap alone.
   headless-iot  Zero 2 / Pi 3 class — watchdog, no Bluetooth,
                 Wi-Fi never sleeps, underclock, LEDs off, quiet boot.
@@ -175,6 +176,8 @@ pi_show_effective_config() {
     V_HAILO="${INSTALL_HAILO:-0}" \
     V_CHRONY="${INSTALL_CHRONY:-0}" \
     V_DISABLE_IPV6="${DISABLE_IPV6:-0}" \
+    V_OMNIBAN="${INSTALL_OMNIBAN:-0}" \
+    V_KIOSK_MONITOR="${INSTALL_KIOSK_MONITOR:-0}" \
     V_OC="${REQUEST_OC_CONSERVATIVE:-0}" \
     V_UNDERCLOCK="${REQUEST_UNDERCLOCK:-0}" \
     V_WATCHDOG="${INSTALL_WATCHDOG:-0}" \
@@ -239,6 +242,8 @@ out = {
         "hailo": b("V_HAILO"),
         "chrony": b("V_CHRONY"),
         "disable_ipv6": b("V_DISABLE_IPV6"),
+        "omniban": b("V_OMNIBAN"),
+        "kiosk_monitor": b("V_KIOSK_MONITOR"),
     },
     "hardware": {
         "overclock_conservative": b("V_OC"),
@@ -315,6 +320,8 @@ Integrations
   hailo               ${INSTALL_HAILO:-0}
   chrony              ${INSTALL_CHRONY:-0}
   disable_ipv6        ${DISABLE_IPV6:-0}
+  omniban             ${INSTALL_OMNIBAN:-0}
+  kiosk_monitor       ${INSTALL_KIOSK_MONITOR:-0}
 
 Hardware / clocks
   overclock           ${REQUEST_OC_CONSERVATIVE:-0}
@@ -373,6 +380,7 @@ pi_apply_profile() {
       WIFI_POWERSAVE_OFF=1
       SECURE_SSH=1
       QUIET_BOOT=1
+      INSTALL_KIOSK_MONITOR=1
       # screen_blanking runs by default — don't set KEEP_SCREEN_BLANKING.
       ;;
     server)
@@ -387,6 +395,7 @@ pi_apply_profile() {
       INSTALL_NODE_EXPORTER=1
       ENABLE_DNS_CACHE=1
       INSTALL_FIREWALL=1
+      INSTALL_OMNIBAN=1
       DISABLE_LEDS=1
       HEADLESS_GPU_MEM=1
       KEEP_SCREEN_BLANKING=1  # no display, skip the screen_blanking work

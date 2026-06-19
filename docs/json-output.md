@@ -145,7 +145,9 @@ want to inspect the live state before deciding to re-apply.
     "smartmontools": true,
     "cli_modern": false,
     "net_diag": false,
-    "dns_cache": true
+    "dns_cache": true,
+    "omniban": false,
+    "kiosk_monitor": false
   },
   "hardware": {
     "overclock_conservative": false,

@@ -74,6 +74,9 @@ watchdog
 ssh_import
 secure_ssh
 ufw_firewall
+# omniban runs after fail2ban (secure_ssh) + UFW so it can auto-detect
+# the ban backends pi-optimiser just installed.
+omniban
 
 # --- Packages ---------------------------------------------------------
 cli_bundle_modern
@@ -84,6 +87,7 @@ smartmontools
 docker
 pi_connect
 hailo
+kiosk_monitor
 
 # --- Firmware (reboot-required; runs last) ---------------------------
 eeprom_refresh

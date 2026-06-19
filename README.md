@@ -29,7 +29,7 @@ Set up a Raspberry Pi faster, safer, and with less guesswork.
 - **Menu-driven by default**: launch it on a real terminal and `whiptail` opens a guided flow with profile suggestions, category checklists, value forms, status screens, and an apply step that writes `/etc/pi-optimiser/config.yaml`.
 - **Hardware-aware configuration** for Pi 5/500, Pi 4/400, Pi 3, and Pi Zero 2, with preflight checks for throttling, power issues, and connectivity before any changes.
 - **Storage longevity** tweaks: aggressive apt hygiene, tmpfs mounts for `/tmp` and `/var/log`, journal rate limits, and pessimistic writeback tuning.
-- **Optional extras** you can add à la carte: compressed ZRAM swap, Tailscale, Docker, per-model overclocking (Pi 5/500 ship at 2.8 GHz), NGINX proxy, kiosk display tuning, bootloader EEPROM tuning, non-interactive `rpi-update`, and SSH hardening with fail2ban.
+- **Optional extras** you can add à la carte: compressed ZRAM swap, Tailscale, Docker, per-model overclocking (Pi 5/500 ship at 2.8 GHz), NGINX proxy, kiosk display tuning, the [kiosk-monitor](https://github.com/extremeshok/kiosk-monitor) fullscreen watchdog, the [omniban](https://github.com/extremeshok/omniban) firewall/IDS ban manager, bootloader EEPROM tuning, non-interactive `rpi-update`, and SSH hardening with fail2ban.
 - **Runtime tuning** pinned to `performance` via a systemd unit so the CPU governor stays set across reboots.
 - **Auditability**: every task logs to `/var/log/pi-optimiser.log` (rotated weekly), state lives in `/etc/pi-optimiser/state.json` (schema v2, JSON), backups carry timestamped `.pi-optimiser.*` suffixes with `/etc/pi-optimiser/backups/<task>.json` journals for `--undo`, and `--snapshot` captures the full pre-change config tree.
 - **Helpful introspection**: `--list-tasks`, `--list-profiles`, `--status`, `--report`, `--validate-config`, `--check-update`. All accept `--output json` for scripting.
@@ -154,6 +154,8 @@ profile, or run a single task non-interactively.
 | `--docker-cgroupv2` | Append `systemd.unified_cgroup_hierarchy=1` to `cmdline.txt`. Reboot required. |
 | `--install-pi-connect` | Install Raspberry Pi Connect (WebRTC remote access). |
 | `--install-hailo` | Pi 5/500: install Hailo NPU drivers for Hailo HAT hardware. |
+| `--install-omniban` | Install [omniban](https://github.com/extremeshok/omniban), a unified firewall/IDS ban manager (fail2ban, CrowdSec, UFW, nftables, …). |
+| `--install-kiosk-monitor` | Install [kiosk-monitor](https://github.com/extremeshok/kiosk-monitor), a self-healing fullscreen Chromium/VLC kiosk watchdog. |
 | `--install-firewall` | Install and enable UFW with deny-in + allow outbound, auto-opens SSH / active VPN / proxy ports. |
 | `--install-node-exporter` | Install `prometheus-node-exporter` on `:9100`. |
 | `--install-smartmontools` | Install `smartmontools` + enable `smartd`. |
@@ -269,8 +271,10 @@ The script executes these tasks in order unless skipped. **Optional** tasks requ
 | `watchdog` † | Enable hardware watchdog and wire systemd to feed it (`--enable-watchdog`). |
 | `ssh_import` † | Import `authorized_keys` from GitHub/URL (`--ssh-import-github`, `--ssh-import-url`). |
 | `secure_ssh` † | Harden sshd (no root login) and enable fail2ban sshd jail. |
+| `omniban` † | Install the omniban unified firewall/IDS ban manager (`--install-omniban`); auto-detects installed ban backends. |
 | `tailscale` † | Install/enable Tailscale repository and service. |
 | `docker` † | Install Docker Engine (preferred repo or distro fallback). |
+| `kiosk_monitor` † | Install the kiosk-monitor fullscreen Chromium/VLC watchdog (`--install-kiosk-monitor`); configure with `sudo kiosk-monitor --reconfig`. |
 | `eeprom_refresh` † | Refresh bootloader EEPROM via `rpi-eeprom-update -a` (`--eeprom-update`). |
 | `firmware_update` † | Run `rpi-update` non-interactively to pull the latest firmware (`--firmware-update`). |
 
@@ -437,6 +441,8 @@ Use `--undo <task>` for task-level rollback, or `--snapshot` / `--restore <archi
 - **SSH access**: after enabling `--secure-ssh`, ensure key-based auth is in place. Root login via SSH is blocked.
 - **Tailscale**: run `sudo tailscale up` manually after installation to join your network.
 - **Docker**: a reboot is recommended to load the cgroup hierarchy cleanly if installing Docker.
+- **omniban**: no configuration needed — run `sudo omniban` for the TUI or `omniban --help` for the CLI once installed.
+- **kiosk-monitor**: set the screen URL/mode after install with `sudo kiosk-monitor --reconfig` (or edit `/etc/kiosk-monitor/kiosk-monitor.conf` and `sudo systemctl restart kiosk-monitor`).
 
 ## FAQ
 - **Will pi-optimiser reboot or halt my Pi on its own?** No, not by default. If you pass `--reboot`, it will restart only when a reboot-required task ran in that same invocation. It does not halt or power off the system automatically.

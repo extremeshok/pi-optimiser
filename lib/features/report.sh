@@ -88,6 +88,8 @@ _pi_generate_report_text() {
     "tailscale::tailscale" \
     "docker::docker" \
     "fail2ban::fail2ban-client" \
+    "omniban::omniban" \
+    "kiosk-monitor::kiosk-monitor" \
     "rpi-update::rpi-update" \
     "rpi-eeprom-update::rpi-eeprom-update" \
     ; do

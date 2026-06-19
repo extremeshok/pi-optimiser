@@ -44,6 +44,8 @@ pi_config_save() {
   V_HAILO="${INSTALL_HAILO:-0}" \
   V_CHRONY="${INSTALL_CHRONY:-0}" \
   V_DISABLE_IPV6="${DISABLE_IPV6:-0}" \
+  V_OMNIBAN="${INSTALL_OMNIBAN:-0}" \
+  V_KIOSK_MONITOR="${INSTALL_KIOSK_MONITOR:-0}" \
   V_OC="${REQUEST_OC_CONSERVATIVE:-0}" \
   V_UNDERCLOCK="${REQUEST_UNDERCLOCK:-0}" \
   V_WATCHDOG="${INSTALL_WATCHDOG:-0}" \
@@ -115,6 +117,8 @@ lines.append(f'  pi_connect: {b("V_PI_CONNECT")}')
 lines.append(f'  hailo: {b("V_HAILO")}')
 lines.append(f'  chrony: {b("V_CHRONY")}')
 lines.append(f'  disable_ipv6: {b("V_DISABLE_IPV6")}')
+lines.append(f'  omniban: {b("V_OMNIBAN")}')
+lines.append(f'  kiosk_monitor: {b("V_KIOSK_MONITOR")}')
 lines.append("hardware:")
 lines.append(f'  overclock_conservative: {b("V_OC")}')
 lines.append(f'  underclock: {b("V_UNDERCLOCK")}')
@@ -354,6 +358,8 @@ emit_bool("INSTALL_PI_CONNECT", i, "pi_connect")
 emit_bool("INSTALL_HAILO", i, "hailo")
 emit_bool("INSTALL_CHRONY", i, "chrony")
 emit_bool("DISABLE_IPV6", i, "disable_ipv6")
+emit_bool("INSTALL_OMNIBAN", i, "omniban")
+emit_bool("INSTALL_KIOSK_MONITOR", i, "kiosk_monitor")
 
 h = data.get("hardware", {})
 emit_bool("REQUEST_OC_CONSERVATIVE", h, "overclock_conservative")

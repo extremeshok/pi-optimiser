@@ -567,6 +567,8 @@ for pair in \
   "--pcie-gen3 pcie_gen3" \
   "--enable-watchdog watchdog" \
   "--secure-ssh secure_ssh" \
+  "--install-omniban omniban" \
+  "--install-kiosk-monitor kiosk_monitor" \
   "--firmware-update firmware_update" \
   "--eeprom-update eeprom_refresh" \
   "--wifi-powersave-off wifi_bt_power"; do
@@ -680,6 +682,7 @@ declare -a docflags=(
   --disable-leds --install-pi-connect --remove-cups
   --headless-gpu-mem --install-chrony --disable-ipv6
   --usb-uas-quirks --install-hailo
+  --install-omniban --install-kiosk-monitor
   --pcie-gen3 --underclock --wifi-powersave-off --disable-bluetooth
   --enable-dns-cache --install-wireguard --install-node-exporter
   --install-smartmontools --install-cli-modern --install-net-diag
