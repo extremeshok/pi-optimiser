@@ -24,14 +24,18 @@ Task-by-task completion record, in manifest order.
       "id": "cpu_governor",
       "status": "completed",
       "timestamp": "2026-04-19T10:54:14+02:00",
+      "task_version_current": "1.2.0",
       "task_version_ran": "1.1.0",
+      "task_version_pending": true,
       "description": "Keep the CPU at full speed (performance governor)"
     },
     {
       "id": "docker",
       "status": "pending",
       "timestamp": null,
+      "task_version_current": "1.0.0",
       "task_version_ran": null,
+      "task_version_pending": false,
       "description": null
     }
   ]
@@ -39,6 +43,9 @@ Task-by-task completion record, in manifest order.
 ```
 
 `status` ∈ `{completed, failed, pending}`.
+`task_version_pending` is true when the source metadata version differs
+from the version recorded on the last successful task run; the next
+active apply reruns that task unless it is frozen with `--freeze-task`.
 
 ## `pi-optimiser --report --output json`
 
@@ -63,10 +70,10 @@ Current-state snapshot. Runtime values are pulled from
   },
   "schema_version": 2,
   "task_summary": {
-    "total": 48,
+    "total": 59,
     "completed": 7,
     "failed": 0,
-    "pending": 41
+    "pending": 52
   },
   "reboot_required": false,
   "reboot_reason": null
@@ -98,13 +105,13 @@ Exit codes:
     {
       "name": "kiosk",
       "enables": ["INSTALL_ZRAM", "WIFI_POWERSAVE_OFF", "SECURE_SSH",
-                  "QUIET_BOOT"]
+                  "QUIET_BOOT", "INSTALL_KIOSK_MONITOR"]
     },
     {
       "name": "server",
       "enables": ["INSTALL_ZRAM", "SECURE_SSH", "INSTALL_SMARTMONTOOLS",
                   "INSTALL_NODE_EXPORTER", "ENABLE_DNS_CACHE",
-                  "INSTALL_FIREWALL", "DISABLE_LEDS",
+                  "INSTALL_FIREWALL", "INSTALL_OMNIBAN", "DISABLE_LEDS",
                   "HEADLESS_GPU_MEM", "KEEP_SCREEN_BLANKING"]
     },
     {
@@ -138,6 +145,7 @@ want to inspect the live state before deciding to re-apply.
   "integrations": {
     "tailscale": false,
     "wireguard": false,
+    "allow_both_vpn": false,
     "docker": {"enabled": true, "buildx_multiarch": false, "cgroup_v2": false},
     "zram": {"enabled": true, "algo": "lz4"},
     "proxy_backend": null,
@@ -146,6 +154,11 @@ want to inspect the live state before deciding to re-apply.
     "cli_modern": false,
     "net_diag": false,
     "dns_cache": true,
+    "pi_connect": false,
+    "hailo": false,
+    "hailo_hardware": "auto",
+    "chrony": false,
+    "disable_ipv6": false,
     "omniban": false,
     "kiosk_monitor": false
   },
@@ -156,11 +169,40 @@ want to inspect the live state before deciding to re-apply.
     "pcie_gen3": false,
     "watchdog": false,
     "wifi_powersave_off": false,
-    "disable_bluetooth": false
+    "disable_bluetooth": false,
+    "quiet_boot": false,
+    "disable_leds": false,
+    "nvme_tune": false,
+    "headless_gpu_mem": false,
+    "usb_uas_quirks": false,
+    "usb_uas_extra": null,
+    "usb_gadget": null
   },
-  "firmware": {"firmware_update": false, "eeprom_update": false},
-  "security": {"secure_ssh": true, "ssh_import_github": null, "ssh_import_url": null},
-  "system": {"hostname": null, "timezone": null, "locale": null, "keep_screen_blanking": true},
+  "firmware": {"firmware_update": false, "eeprom_update": false, "power_off_halt": false},
+  "security": {
+    "secure_ssh": true,
+    "firewall": false,
+    "sudo_policy": null,
+    "ssh_import_github": null,
+    "ssh_import_url": null
+  },
+  "system": {
+    "hostname": null,
+    "timezone": null,
+    "locale": null,
+    "keep_screen_blanking": true,
+    "remove_cups": false,
+    "cloud_init_finalize": false
+  },
+  "refresh": {
+    "default_min_days": null,
+    "tasks": {
+      "eeprom_refresh": "30",
+      "firmware_update": "manual",
+      "kiosk_monitor": "always",
+      "omniban": "always"
+    }
+  },
   "metrics": {"enabled": true, "path": null},
   "watch": false,
   "diff_preview": false,
@@ -169,13 +211,14 @@ want to inspect the live state before deciding to re-apply.
 ```
 
 `metrics`, `watch`, `diff_preview`, `freeze_tasks` were added in
-9.1.0. `freeze_tasks` is an array of task ids (or `null`) matching
-the names in `--list-tasks`.
+9.1.0. `refresh` and the expanded hardware/security/system keys were
+added in 9.7.1. `freeze_tasks` is an array of task ids (or `null`)
+matching the names in `--list-tasks`.
 
 The pi-optimiser-owned YAML fields under `integrations.*`,
-`hardware.*`, `firmware.*`, `security.*`, `system.*`, and the
-top-level `metrics` / `freeze_tasks` / `allow_both_vpn` keys all
-round-trip through `pi_config_save` and `pi_config_load`.
+`hardware.*`, `firmware.*`, `security.*`, `system.*`, `refresh.*`,
+and the top-level `metrics` / `freeze_tasks` keys all round-trip
+through `pi_config_save` and `pi_config_load`.
 
 ## `/etc/pi-optimiser/state.json`
 

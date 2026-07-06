@@ -1,5 +1,41 @@
 # Changelog
 
+## 9.7.1 — 2026-07-06
+
+Maintenance release for the 9.7 task-refresh framework and new Pi OS
+utility tasks.
+
+### Added
+- **Refresh policies for completed maintenance tasks.** `--status` now
+  shows current task source version vs the version that last completed,
+  and active tasks rerun automatically when their source metadata version
+  changes. Refreshable tasks can also rerun when stale via
+  `--refresh-default-days` or repeatable `--refresh-task task=value`.
+  The TUI includes a Refresh policies panel.
+- **Version-aware manual installer updates.** `omniban` uses
+  `omniban update --check` before `omniban update`; `kiosk_monitor`
+  compares the installed `--version` with the upstream installer version
+  before running `--update`.
+- **Hailo hardware selection.** `--hailo-hardware auto|hat|hat2`
+  defaults to `auto`, detecting installed packages and PCIe state before
+  choosing the Hailo package family.
+- **New opt-in tasks.**
+  - `cloud_init_finalize` disables cloud-init after first-boot
+    provisioning so local hostname/sudo changes persist.
+  - `sudo_policy` reconciles Raspberry Pi passwordless sudo policy.
+  - `usb_gadget` enables or disables Raspberry Pi OS Trixie USB Ethernet
+    gadget mode through `rpi-usb-gadget`.
+
+### Changed
+- `eeprom_refresh` defaults to a 30-day refresh check and only flags a
+  reboot when an EEPROM update appears to have been applied.
+- `firmware_update` is refreshable but defaults to `manual`, keeping
+  `rpi-update` deliberate.
+- Documentation now covers refresh policy, Hailo hardware selection,
+  the new tasks, and updated JSON output fields.
+- Removed stale extracted-task comments and dormant no-op bookkeeping
+  from the main script.
+
 ## 9.6.0 — 2026-06-19
 
 Two new opt-in integrations. Both are off by default and reachable from

@@ -2,8 +2,8 @@
 title: PI-OPTIMISER
 section: 8
 header: System Manager's Manual
-footer: pi-optimiser 9.6.0
-date: 2026-06
+footer: pi-optimiser 9.7.1
+date: 2026-07
 ---
 
 # NAME
@@ -27,7 +27,7 @@ pi-optimiser — Raspberry Pi OS hardening and tuning framework
 # DESCRIPTION
 
 pi-optimiser is a modular hardening and tuning framework for
-Raspberry Pi OS. It ships 40+ tasks across storage, networking,
+Raspberry Pi OS. It ships 59 tasks across storage, networking,
 security, packages, firmware, and hardware tuning. Every task records
 completion state under `/etc/pi-optimiser/state.json`.
 
@@ -95,7 +95,7 @@ as `(dry-run)` / `(not requested)` / `(suppressed by VAR)`.
 **--output** *fmt*
 : Emit machine-readable output: *text* (default) or *json*.
 Applies to **--status**, **--report**, **--check-update**,
-**--list-profiles**.
+**--list-profiles**, and **--show-config**.
 
 # INFO COMMANDS
 
@@ -160,6 +160,15 @@ change against the current file. No side effects.
 : Treat *id* as already-completed even under `--force`.
 Repeatable. Also settable via `freeze_tasks: [...]` in
 `config.yaml`.
+
+**--refresh-default-days** *days|0|manual|always*
+: Default stale interval for refreshable completed tasks. Empty config
+uses each task's registry default.
+
+**--refresh-task** *task=value*
+: Override one refreshable task, for example `eeprom_refresh=30`,
+`kiosk_monitor=always`, or `firmware_update=manual`. Repeatable.
+`0` is an alias for `always`.
 
 **--watch**
 : After the initial run, block on `inotifywait` against
@@ -234,15 +243,29 @@ VL715, RTL9210) and append `usb-storage.quirks=VID:PID:u,...` to
 : Extend the UAS-quirk list with additional pairs the operator
 discovered via `dmesg | grep -i uas`. Implies `--usb-uas-quirks`.
 
+**--enable-usb-gadget**, **--disable-usb-gadget**
+: Enable or disable Raspberry Pi OS Trixie USB Ethernet gadget mode via
+`rpi-usb-gadget`. The enable path checks supported models and installs
+the helper package when needed. Reboot required.
+
 **--install-hailo**
 : Pi 5 / Pi 500 only. Install the Hailo NPU driver stack for the
-Raspberry Pi Hailo HAT hardware (`hailo-all` metapackage, falling
-back to the split `hailort` + `hailo-dkms` + `python3-hailort` +
-`hailo-tappas-core` + `hailofw` list on older Bookworm images).
-Probes `lspci` for the Hailo device and warns on kernels older
-than 6.6.31 (where `hailo-dkms` fails to build). Reboots required
-for the DKMS module to attach. Pair with `--pcie-gen3` for full
-Hailo HAT throughput.
+Raspberry Pi Hailo hardware. Defaults to automatic hardware selection.
+
+**--hailo-hardware** *auto|hat|hat2*
+: Select the Hailo package family. `auto` detects installed packages
+and PCIe state; `hat` installs `hailo-all`; `hat2` installs
+`hailo-h10-all`. Pair with `--pcie-gen3` for full Hailo HAT throughput.
+
+**--cloud-init-finalize**
+: Disable cloud-init after first-boot provisioning by creating
+`/etc/cloud/cloud-init.disabled`, so local hostname and sudo policy
+changes are not recreated on later boots.
+
+**--sudo-password-required**, **--sudo-passwordless**
+: Remove Raspberry Pi passwordless sudo drop-ins and strip `NOPASSWD`
+from cloud-init sudoers, or restore passwordless sudo for members of
+the `sudo` group.
 
 **--install-omniban**
 : Install omniban, a single static binary that centralises IP-ban
@@ -251,7 +274,8 @@ nftables, iptables, ipset and other backends. No daemon and no
 config — it auto-detects whichever security tools are installed.
 Runs after `secure_ssh` and `ufw_firewall` so those backends exist
 to detect. Run `sudo omniban` for the TUI afterwards. Enabled by the
-`server` profile.
+`server` profile. On later selected applies it runs
+`omniban update --check` before applying `omniban update`.
 
 **--install-kiosk-monitor**
 : Install kiosk-monitor, a self-healing watchdog that launches
@@ -260,7 +284,8 @@ a frozen instance automatically. Targets Raspberry Pi OS trixie
 Desktop or newer (labwc Wayland, with X11 fallback). Installs the
 binary plus the `kiosk-monitor.service` systemd unit; set the screen
 URL/mode afterwards with `sudo kiosk-monitor --reconfig`. Enabled by
-the `kiosk` profile.
+the `kiosk` profile. On later selected applies it compares local and
+upstream versions before running `kiosk-monitor --update`.
 
 # SELF-UPDATE (opt-in)
 
