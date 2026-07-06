@@ -41,6 +41,7 @@ usb_uas_quirks
 locale
 timezone
 hostname
+cloud_init_finalize
 limits
 
 # --- Display & background services -----------------------------------
@@ -54,6 +55,7 @@ headless_gpu_mem
 proxy
 dns_cache
 wifi_bt_power
+usb_gadget
 node_exporter
 tailscale
 wireguard
@@ -73,6 +75,7 @@ watchdog
 # --- Security ---------------------------------------------------------
 ssh_import
 secure_ssh
+sudo_policy
 ufw_firewall
 # omniban runs after fail2ban (secure_ssh) + UFW so it can auto-detect
 # the ban backends pi-optimiser just installed.

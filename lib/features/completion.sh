@@ -35,11 +35,14 @@ _pi_optimiser() {
     --wifi-powersave-off --disable-bluetooth --keep-screen-blanking
     --docker-buildx-multiarch --docker-cgroupv2
     --watch --diff --no-metrics --metrics-path --freeze-task
+    --refresh-default-days --refresh-task
     --self-test --show-config --reboot
     --install-firewall --power-off-halt --nvme-tune --quiet-boot
     --disable-leds --install-pi-connect --remove-cups
     --headless-gpu-mem --install-chrony --disable-ipv6
-    --usb-uas-quirks --usb-uas-extra --install-hailo
+    --usb-uas-quirks --usb-uas-extra --install-hailo --hailo-hardware
+    --enable-usb-gadget --disable-usb-gadget --cloud-init-finalize
+    --sudo-password-required --sudo-passwordless
     --install-omniban --install-kiosk-monitor
     --completion --help --version
   "
@@ -73,6 +76,14 @@ _pi_optimiser() {
       ;;
     --zram-algo)
       COMPREPLY=( $(compgen -W "lz4 zstd disabled" -- "$cur") )
+      return 0
+      ;;
+    --refresh-default-days)
+      COMPREPLY=( $(compgen -W "manual always 7 30 90" -- "$cur") )
+      return 0
+      ;;
+    --hailo-hardware)
+      COMPREPLY=( $(compgen -W "auto hat hat2" -- "$cur") )
       return 0
       ;;
     --config|--validate-config|--restore)
@@ -138,6 +149,8 @@ _pi_optimiser() {
     '--no-metrics[skip Prometheus textfile output]'
     '--metrics-path[override Prometheus output path]:path:_files'
     '--freeze-task[treat a task as completed]:task:->tasks'
+    '--refresh-default-days[default refresh interval]:days:(manual always 7 30 90)'
+    '--refresh-task[refresh interval for one task]:task=value:'
     '--self-test[run task preconditions read-only]'
     '--show-config[print effective config]'
     '--reboot[reboot immediately after a successful run (shutdown -r)]'
@@ -183,6 +196,12 @@ _pi_optimiser() {
     '--usb-uas-quirks[disable UAS on known-bad USB-SATA adapters]'
     '--usb-uas-extra[extra VID:PID pairs for UAS quirks]:pairs:'
     '--install-hailo[Pi 5: install Hailo NPU drivers]'
+    '--hailo-hardware[Hailo hardware family]:hardware:(auto hat hat2)'
+    '--enable-usb-gadget[enable USB Ethernet gadget mode]'
+    '--disable-usb-gadget[disable USB Ethernet gadget mode]'
+    '--cloud-init-finalize[disable cloud-init after first boot provisioning]'
+    '--sudo-password-required[remove passwordless sudo drop-ins]'
+    '--sudo-passwordless[restore passwordless sudo for the sudo group]'
     '--install-omniban[install omniban firewall/IDS ban manager]'
     '--install-kiosk-monitor[install kiosk-monitor fullscreen kiosk watchdog]'
     '--completion[emit completion script]:shell:(bash zsh)'

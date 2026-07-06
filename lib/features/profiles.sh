@@ -64,7 +64,7 @@ pi_validate_config() {
 import os, sys
 path = os.environ["CFG_PATH"]
 known_top = {"version", "profile", "integrations", "hardware",
-             "firmware", "security", "system",
+             "firmware", "security", "system", "refresh",
              "metrics", "freeze_tasks"}
 seen = set()
 with open(path) as fh:
@@ -158,6 +158,35 @@ pi_show_effective_config() {
   if (( ${#PI_FROZEN_TASKS[@]} > 0 )); then
     _frozen_ids="${!PI_FROZEN_TASKS[*]}"
   fi
+  local _refresh_pairs="" _refresh_task _refresh_value
+  if declare -p PI_TASK_REFRESH_DAYS >/dev/null 2>&1; then
+    for _refresh_task in "${!PI_TASK_REFRESH_DAYS[@]}"; do
+      [[ -n "${PI_TASK_REFRESH_DAYS[$_refresh_task]:-}" ]] || continue
+      _refresh_value=${PI_REFRESH_TASK_MIN_DAYS[$_refresh_task]:-${PI_TASK_REFRESH_DAYS[$_refresh_task]}}
+      _refresh_pairs+="${_refresh_task}=${_refresh_value}"$'\n'
+    done
+  fi
+  local _refresh_lines=""
+  if [[ -n "$_refresh_pairs" ]]; then
+    local _rt _rv
+    while IFS='=' read -r _rt _rv; do
+      [[ -n "$_rt" ]] || continue
+      _refresh_lines+="$(printf '  %-20s %s' "$_rt" "$_rv")"$'\n'
+    done <<< "$_refresh_pairs"
+  else
+    _refresh_lines="$(printf '  %-20s %s\n' "tasks" "<none>")"
+  fi
+  local _usb_gadget_mode="" _sudo_policy_mode=""
+  if [[ ${USB_GADGET_DISABLE:-0} -eq 1 ]]; then
+    _usb_gadget_mode="disable"
+  elif [[ ${USB_GADGET_SET:-0} -eq 1 || ${USB_GADGET_ENABLE:-0} -eq 1 ]]; then
+    _usb_gadget_mode="enable"
+  fi
+  if [[ ${SUDO_POLICY_PASSWORDLESS:-0} -eq 1 ]]; then
+    _sudo_policy_mode="passwordless"
+  elif [[ ${SUDO_POLICY_SET:-0} -eq 1 || ${SUDO_POLICY_REQUIRED:-0} -eq 1 ]]; then
+    _sudo_policy_mode="password-required"
+  fi
   if [[ ${PI_OUTPUT_JSON:-0} -eq 1 ]]; then
     V_TAILSCALE="${INSTALL_TAILSCALE:-0}" \
     V_DOCKER="${INSTALL_DOCKER:-0}" \
@@ -174,6 +203,7 @@ pi_show_effective_config() {
     V_DNS_CACHE="${ENABLE_DNS_CACHE:-0}" \
     V_PI_CONNECT="${INSTALL_PI_CONNECT:-0}" \
     V_HAILO="${INSTALL_HAILO:-0}" \
+    V_HAILO_HW="${HAILO_HARDWARE:-auto}" \
     V_CHRONY="${INSTALL_CHRONY:-0}" \
     V_DISABLE_IPV6="${DISABLE_IPV6:-0}" \
     V_OMNIBAN="${INSTALL_OMNIBAN:-0}" \
@@ -191,16 +221,19 @@ pi_show_effective_config() {
     V_HEADLESS_GPU="${HEADLESS_GPU_MEM:-0}" \
     V_USB_UAS="${USB_UAS_QUIRKS:-0}" \
     V_USB_UAS_EXTRA="${USB_UAS_EXTRA:-}" \
+    V_USB_GADGET_MODE="$_usb_gadget_mode" \
     V_FW_UPDATE="${FIRMWARE_UPDATE:-0}" \
     V_EEPROM="${EEPROM_UPDATE:-0}" \
     V_POWER_OFF_HALT="${POWER_OFF_HALT:-0}" \
     V_SECURE_SSH="${SECURE_SSH:-0}" \
     V_FIREWALL="${INSTALL_FIREWALL:-0}" \
+    V_SUDO_POLICY="$_sudo_policy_mode" \
     V_HOSTNAME="${REQUESTED_HOSTNAME:-}" \
     V_TZ="${REQUESTED_TIMEZONE:-}" \
     V_LOCALE="${REQUESTED_LOCALE:-}" \
     V_KEEP_BLANK="${KEEP_SCREEN_BLANKING:-0}" \
     V_REMOVE_CUPS="${REMOVE_CUPS:-0}" \
+    V_CLOUD_INIT_FINALIZE="${CLOUD_INIT_FINALIZE:-0}" \
     V_PROXY="${PROXY_BACKEND:-}" \
     V_PROFILE="${PI_PROFILE:-}" \
     V_DRYRUN="${DRY_RUN:-0}" \
@@ -209,6 +242,8 @@ pi_show_effective_config() {
     V_URL="${SSH_IMPORT_URL:-}" \
     V_METRICS_ENABLED="${PI_METRICS_ENABLED:-1}" \
     V_METRICS_PATH="${PI_METRICS_PATH:-}" \
+    V_REFRESH_DEFAULT="${PI_REFRESH_DEFAULT_MIN_DAYS:-}" \
+    V_REFRESH_TASKS="$_refresh_pairs" \
     V_WATCH="${PI_WATCH:-0}" \
     V_DIFF="${PI_DIFF_MODE:-0}" \
     V_FROZEN="$_frozen_ids" \
@@ -216,6 +251,15 @@ pi_show_effective_config() {
 import json, os, sys
 def b(name): return os.environ.get(name, "0") == "1"
 def s(name): return os.environ.get(name, "") or None
+def refresh_tasks():
+    out = {}
+    for raw in os.environ.get("V_REFRESH_TASKS", "").splitlines():
+        if "=" not in raw:
+            continue
+        task, value = raw.split("=", 1)
+        if task and value:
+            out[task] = value
+    return out or None
 out = {
     "runtime": {
         "dry_run": b("V_DRYRUN"),
@@ -240,6 +284,7 @@ out = {
         "dns_cache": b("V_DNS_CACHE"),
         "pi_connect": b("V_PI_CONNECT"),
         "hailo": b("V_HAILO"),
+        "hailo_hardware": s("V_HAILO_HW") or "auto",
         "chrony": b("V_CHRONY"),
         "disable_ipv6": b("V_DISABLE_IPV6"),
         "omniban": b("V_OMNIBAN"),
@@ -259,6 +304,7 @@ out = {
         "headless_gpu_mem": b("V_HEADLESS_GPU"),
         "usb_uas_quirks": b("V_USB_UAS"),
         "usb_uas_extra": s("V_USB_UAS_EXTRA"),
+        "usb_gadget": s("V_USB_GADGET_MODE"),
     },
     "firmware": {
         "firmware_update": b("V_FW_UPDATE"),
@@ -268,6 +314,7 @@ out = {
     "security": {
         "secure_ssh": b("V_SECURE_SSH"),
         "firewall": b("V_FIREWALL"),
+        "sudo_policy": s("V_SUDO_POLICY"),
         "ssh_import_github": s("V_GH"),
         "ssh_import_url": s("V_URL"),
     },
@@ -277,6 +324,11 @@ out = {
         "locale": s("V_LOCALE"),
         "keep_screen_blanking": b("V_KEEP_BLANK"),
         "remove_cups": b("V_REMOVE_CUPS"),
+        "cloud_init_finalize": b("V_CLOUD_INIT_FINALIZE"),
+    },
+    "refresh": {
+        "default_min_days": s("V_REFRESH_DEFAULT"),
+        "tasks": refresh_tasks(),
     },
     "metrics": {
         "enabled": b("V_METRICS_ENABLED"),
@@ -317,7 +369,7 @@ Integrations
   net_diag_bundle     ${INSTALL_NET_DIAG:-0}
   dns_cache           ${ENABLE_DNS_CACHE:-0}
   pi_connect          ${INSTALL_PI_CONNECT:-0}
-  hailo               ${INSTALL_HAILO:-0}
+  hailo               ${INSTALL_HAILO:-0}  (hardware=${HAILO_HARDWARE:-auto})
   chrony              ${INSTALL_CHRONY:-0}
   disable_ipv6        ${DISABLE_IPV6:-0}
   omniban             ${INSTALL_OMNIBAN:-0}
@@ -340,6 +392,7 @@ Hardware / clocks
   headless_gpu_mem    ${HEADLESS_GPU_MEM:-0}
   usb_uas_quirks      ${USB_UAS_QUIRKS:-0}
   usb_uas_extra       ${USB_UAS_EXTRA:-<unset>}
+  usb_gadget          ${_usb_gadget_mode:-<unset>}
 
 Firmware
   firmware-update     ${FIRMWARE_UPDATE:-0}
@@ -349,6 +402,7 @@ Firmware
 Security
   secure_ssh          ${SECURE_SSH:-0}
   firewall            ${INSTALL_FIREWALL:-0}
+  sudo_policy         ${_sudo_policy_mode:-<unset>}
   ssh_import_github   ${SSH_IMPORT_GITHUB:-<unset>}
   ssh_import_url      ${SSH_IMPORT_URL:-<unset>}
 
@@ -358,6 +412,11 @@ System
   locale              ${REQUESTED_LOCALE:-<unset>}
   keep_screen_blanking ${KEEP_SCREEN_BLANKING:-0}
   remove_cups         ${REMOVE_CUPS:-0}
+  cloud_init_finalize ${CLOUD_INIT_FINALIZE:-0}
+
+Refresh
+  default_min_days    ${PI_REFRESH_DEFAULT_MIN_DAYS:-<task defaults>}
+${_refresh_lines}
 
 Framework
   metrics_enabled     ${PI_METRICS_ENABLED:-1}

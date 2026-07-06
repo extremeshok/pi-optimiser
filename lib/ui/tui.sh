@@ -189,11 +189,15 @@ _pi_tui_category() {
       if [[ "$TASK_STATE_STATUS" == "completed" ]]; then
         already_done=1
         local iso_date="${TASK_STATE_TIMESTAMP%%T*}"
+        local refresh_label=""
+        refresh_label=$(pi_refresh_task_status_label "$tid" "$TASK_STATE_TIMESTAMP" 2>/dev/null || true)
         if [[ -n "$iso_date" ]]; then
-          state_status=" (completed $iso_date)"
+          state_status=" (completed $iso_date"
         else
-          state_status=" (completed)"
+          state_status=" (completed"
         fi
+        [[ -n "$refresh_label" ]] && state_status+="; $refresh_label"
+        state_status+=")"
       else
         state_status=" ($TASK_STATE_STATUS)"
       fi
@@ -401,6 +405,81 @@ _pi_tui_forms_menu() {
   done
 }
 
+_pi_tui_refresh_set_task() {
+  local task=$1 current choice value
+  current=$(pi_refresh_policy_for_task "$task" 2>/dev/null || echo manual)
+  choice=$(_whiptail --title "Refresh policy: $task" \
+    --radiolist "Run this completed task again when it is selected and stale:" \
+    15 72 6 \
+      manual "Only with --force or explicit run-now workflows" "$([[ $current == manual ]] && echo ON || echo OFF)" \
+      always "Every apply while selected" "$([[ $current == always ]] && echo ON || echo OFF)" \
+      7      "Every 7 days" "$([[ $current == 7 ]] && echo ON || echo OFF)" \
+      30     "Every 30 days" "$([[ $current == 30 ]] && echo ON || echo OFF)" \
+      90     "Every 90 days" "$([[ $current == 90 ]] && echo ON || echo OFF)" \
+      custom "Type a custom day interval" OFF \
+    3>&1 1>&2 2>&3) || return 0
+  choice=${choice//\"/}
+  if [[ $choice == "custom" ]]; then
+    value=$(_whiptail --title "Custom refresh interval" \
+      --inputbox "Days between refresh checks (1..3650), or 0 for every apply:" \
+      10 72 "${current/manual/30}" \
+      3>&1 1>&2 2>&3) || return 0
+  else
+    value=$choice
+  fi
+  if ! value=$(pi_refresh_normalize_value "$value"); then
+    _whiptail --title "Refresh policy" --msgbox \
+      "Invalid refresh interval. Use manual, always, or an integer day count from 0 to 3650." 9 72
+    return 0
+  fi
+  # shellcheck disable=SC2034  # consumed by refresh helpers after TUI apply
+  PI_REFRESH_TASK_MIN_DAYS[$task]=$value
+}
+
+_pi_tui_refresh_menu() {
+  local choice label policy
+  while true; do
+    local -a items=()
+    local tid
+    for tid in "${PI_TASK_ORDER[@]}"; do
+      [[ -n "${PI_TASK_REFRESH_DAYS[$tid]:-}" ]] || continue
+      policy=$(pi_refresh_policy_for_task "$tid" 2>/dev/null || echo manual)
+      label=$(pi_refresh_policy_label "$policy")
+      items+=("$tid" "${PI_TASK_DESC[$tid]} (${label})")
+    done
+    items+=("default" "Default for refreshable tasks: ${PI_REFRESH_DEFAULT_MIN_DAYS:-task defaults}")
+    items+=("back" "<- Back to main menu")
+    choice=$(_whiptail --title "Refresh policies" \
+      --menu "Completed maintenance tasks rerun only when selected and stale." \
+      $PI_WHIP_HEIGHT $PI_WHIP_WIDTH $PI_WHIP_MENU_ROWS \
+      "${items[@]}" \
+      3>&1 1>&2 2>&3) || return 0
+    choice=${choice//\"/}
+    case $choice in
+      default)
+        local def
+        def=$(_whiptail --title "Default refresh interval" \
+          --inputbox "Default for refreshable tasks. Leave empty for task defaults; use manual, always, or days:" \
+          10 78 "${PI_REFRESH_DEFAULT_MIN_DAYS:-}" \
+          3>&1 1>&2 2>&3) || continue
+        if [[ -z "$def" ]]; then
+          PI_REFRESH_DEFAULT_MIN_DAYS=""
+        elif def=$(pi_refresh_normalize_value "$def"); then
+          PI_REFRESH_DEFAULT_MIN_DAYS=$def
+        else
+          _whiptail --title "Refresh policy" --msgbox "Invalid default refresh interval." 8 60
+        fi
+        ;;
+      back|"")
+        return 0
+        ;;
+      *)
+        _pi_tui_refresh_set_task "$choice"
+        ;;
+    esac
+  done
+}
+
 _pi_tui_apply() {
   # Translate the checklist selection into --only + gate-variable flips.
   # Without the flips, each task's own gate_var check (e.g.
@@ -410,6 +489,7 @@ _pi_tui_apply() {
   # "values" forms menu; we never coerce them to "1".
   local tid gate
   local _preserve_wifi=0 _preserve_bt=0 _preserve_zram_disabled=0 _preserve_zram_algo=""
+  local _preserve_usb_gadget_mode="" _preserve_sudo_policy_mode=""
   if [[ -n "${PI_TUI_SELECTED[wifi_bt_power]:-}" ]]; then
     _preserve_wifi=${WIFI_POWERSAVE_OFF:-0}
     _preserve_bt=${DISABLE_BLUETOOTH:-0}
@@ -423,6 +503,20 @@ _pi_tui_apply() {
       # zram in the storage menu silently downgrades it to the lz4
       # default both at runtime and in the saved config.yaml.
       _preserve_zram_algo=$ZRAM_ALGO_OVERRIDE
+    fi
+  fi
+  if [[ -n "${PI_TUI_SELECTED[usb_gadget]:-}" ]]; then
+    if [[ ${USB_GADGET_DISABLE:-0} -eq 1 ]]; then
+      _preserve_usb_gadget_mode="disable"
+    elif [[ ${USB_GADGET_ENABLE:-0} -eq 1 ]]; then
+      _preserve_usb_gadget_mode="enable"
+    fi
+  fi
+  if [[ -n "${PI_TUI_SELECTED[sudo_policy]:-}" ]]; then
+    if [[ ${SUDO_POLICY_PASSWORDLESS:-0} -eq 1 ]]; then
+      _preserve_sudo_policy_mode="passwordless"
+    elif [[ ${SUDO_POLICY_REQUIRED:-0} -eq 1 ]]; then
+      _preserve_sudo_policy_mode="password-required"
     fi
   fi
   # For every category the operator visited, reset that category's
@@ -440,6 +534,18 @@ _pi_tui_apply() {
       zram)
         INSTALL_ZRAM=0
         ZRAM_ALGO_OVERRIDE=""
+        continue
+        ;;
+      usb_gadget)
+        USB_GADGET_SET=0
+        USB_GADGET_ENABLE=0
+        USB_GADGET_DISABLE=0
+        continue
+        ;;
+      sudo_policy)
+        SUDO_POLICY_SET=0
+        SUDO_POLICY_REQUIRED=0
+        SUDO_POLICY_PASSWORDLESS=0
         continue
         ;;
     esac
@@ -479,6 +585,30 @@ _pi_tui_apply() {
           INSTALL_ZRAM=1
           # Restore a non-default algo (zstd) captured before the reset.
           [[ -n $_preserve_zram_algo ]] && ZRAM_ALGO_OVERRIDE=$_preserve_zram_algo
+        fi
+        continue
+        ;;
+      usb_gadget)
+        # shellcheck disable=SC2034  # consumed by run_usb_gadget after TUI apply
+        USB_GADGET_SET=1
+        if [[ $_preserve_usb_gadget_mode == "disable" ]]; then
+          USB_GADGET_ENABLE=0
+          USB_GADGET_DISABLE=1
+        else
+          USB_GADGET_ENABLE=1
+          USB_GADGET_DISABLE=0
+        fi
+        continue
+        ;;
+      sudo_policy)
+        # shellcheck disable=SC2034  # consumed by run_sudo_policy after TUI apply
+        SUDO_POLICY_SET=1
+        if [[ $_preserve_sudo_policy_mode == "passwordless" ]]; then
+          SUDO_POLICY_REQUIRED=0
+          SUDO_POLICY_PASSWORDLESS=1
+        else
+          SUDO_POLICY_REQUIRED=1
+          SUDO_POLICY_PASSWORDLESS=0
         fi
         continue
         ;;
@@ -600,6 +730,7 @@ pi_tui_main() {
         services   "Extra services (Docker, Raspberry Pi Connect)" \
         firmware   "Firmware + EEPROM refresh" \
         values     "Set values for opt-in tasks (hostname, TZ, …)" \
+        refresh    "Set refresh intervals for completed maintenance tasks" \
         status     "View current state + task history" \
         apply      "Apply selected tasks" \
         update     "Self-update from GitHub" \
@@ -631,6 +762,7 @@ pi_tui_main() {
       services)  _pi_tui_category integrations     "Extra services" ;;
       firmware)  _pi_tui_category firmware-eeprom  "Firmware & EEPROM" ;;
       values)    _pi_tui_forms_menu ;;
+      refresh)   _pi_tui_refresh_menu ;;
       status)   _pi_tui_show_status ;;
       apply)
         if _pi_tui_apply && [[ ${PI_TUI_READY_TO_RUN:-0} -eq 1 ]]; then

@@ -32,8 +32,8 @@ STATE_SCHEMA_FILE="$MARKER_DIR/state.schema"
 
 # Write a literal string to $1 atomically (tmpfile + fsync + os.replace
 # + parent-dir fsync). Used for the malformed-state recovery path. The
-# JSON readers/writers below use _pi_state_atomic_json_update which
-# load-modifies-stores under the same atomic discipline.
+# JSON readers/writers below use the same temp-write, fsync, and
+# os.replace discipline for load-modify-store updates.
 _pi_state_atomic_write_literal() {
   local target=$1
   local payload=$2

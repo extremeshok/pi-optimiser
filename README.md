@@ -89,6 +89,8 @@ Typical first-run flow:
 Helpful commands:
 - `sudo pi-optimiser --status` – show task history, timestamps, and
   per-task version drift (`CURRENT` vs `RAN`).
+- `sudo pi-optimiser --dry-run` – show which active tasks would rerun,
+  including task-source upgrades where `CURRENT` differs from `RAN`.
 - `sudo pi-optimiser --list-tasks` – see available tasks.
 - `sudo pi-optimiser --list-profiles` – what each profile enables.
 - `sudo pi-optimiser --report` – human-readable overview of system
@@ -153,7 +155,8 @@ profile, or run a single task non-interactively.
 | `--docker-buildx-multiarch` | Install `qemu-user-static` + seed binfmt so Docker buildx can build multi-arch images. |
 | `--docker-cgroupv2` | Append `systemd.unified_cgroup_hierarchy=1` to `cmdline.txt`. Reboot required. |
 | `--install-pi-connect` | Install Raspberry Pi Connect (WebRTC remote access). |
-| `--install-hailo` | Pi 5/500: install Hailo NPU drivers for Hailo HAT hardware. |
+| `--install-hailo` | Pi 5/500: install Hailo NPU drivers for Hailo hardware. Defaults to auto-detect. |
+| `--hailo-hardware <auto\|hat\|hat2>` | Select Hailo package family. `auto` detects PCIe/package state; `hat` uses `hailo-all`; `hat2` uses `hailo-h10-all`. |
 | `--install-omniban` | Install [omniban](https://github.com/extremeshok/omniban), a unified firewall/IDS ban manager (fail2ban, CrowdSec, UFW, nftables, …). |
 | `--install-kiosk-monitor` | Install [kiosk-monitor](https://github.com/extremeshok/kiosk-monitor), a self-healing fullscreen Chromium/VLC kiosk watchdog. |
 | `--install-firewall` | Install and enable UFW with deny-in + allow outbound, auto-opens SSH / active VPN / proxy ports. |
@@ -176,6 +179,8 @@ profile, or run a single task non-interactively.
 | `--nvme-tune` | Disable NVMe APST for compatibility with quirky Pi 5 NVMe HATs. Reboot required. |
 | `--usb-uas-quirks` | Auto-detect known-bad USB-SATA/NVMe bridges and append `usb-storage.quirks` to `cmdline.txt`. |
 | `--usb-uas-extra <list>` | Extra `VID:PID` pairs (comma-separated) for UAS quirks. |
+| `--enable-usb-gadget` | Trixie: enable USB Ethernet gadget mode with `rpi-usb-gadget`. Reboot required. |
+| `--disable-usb-gadget` | Disable USB Ethernet gadget mode with `rpi-usb-gadget`. Reboot required. |
 | `--wifi-powersave-off` | Disable Wi-Fi power save via a systemd helper. |
 | `--disable-bluetooth` | Disable and mask the Bluetooth stack + overlay. |
 | `--disable-ipv6` | Disable IPv6 via sysctl drop-in at `/etc/sysctl.d/98-pi-optimiser-ipv6.conf`. |
@@ -185,6 +190,9 @@ profile, or run a single task non-interactively.
 | `--power-off-halt` | Pi 5/500 EEPROM: cut 3V3 on shutdown (~0.01 W idle). Skip if HATs need 3V3 while "off". |
 | `--remove-cups` | Purge CUPS + printer-driver packages (auto-applied on `kiosk`/`server`/`headless-iot`). |
 | `--secure-ssh` | Disable root SSH login, keep user passwords, and enable fail2ban. |
+| `--sudo-password-required` | Remove Raspberry Pi passwordless sudo drop-ins and strip `NOPASSWD` from cloud-init's sudoers drop-in. |
+| `--sudo-passwordless` | Restore passwordless sudo for members of the `sudo` group. |
+| `--cloud-init-finalize` | Disable cloud-init after first-boot provisioning so local hostname/sudo changes persist. |
 | `--firmware-update` | Run `rpi-update` non-interactively (`SKIP_WARNING=1`) to pull the latest Raspberry Pi firmware. Reboot required. |
 | `--eeprom-update` | Refresh the Pi 4/5 bootloader EEPROM via `rpi-eeprom-update -a`. Reboot required. |
 | `--enable-watchdog` | Add `dtparam=watchdog=on` to config.txt and wire systemd `RuntimeWatchdogSec=15`. Reboot required. |
@@ -216,6 +224,8 @@ profile, or run a single task non-interactively.
 | `--watch` | Re-run on `config.yaml` changes (uses `inotifywait`, polls every 10 s as fallback). |
 | `--diff` | Preview proposed `config.txt` / `cmdline.txt` edits without writing. |
 | `--freeze-task <id>` | Treat `<id>` as completed even if its code version bumps (repeatable). |
+| `--refresh-default-days <days\|0\|manual\|always>` | Default stale interval for refreshable completed tasks. Empty config uses task defaults. |
+| `--refresh-task <task=value>` | Override one refreshable task, e.g. `eeprom_refresh=30` or `firmware_update=manual`. Repeatable. |
 | `--no-metrics` | Skip writing the Prometheus textfile-collector metrics. |
 | `--metrics-path <path>` | Override the Prometheus metrics output path. |
 | `--reboot` | Immediately reboot (`shutdown -r now`) after a successful run when any reboot-required task ran. Safe for remote Pis — always restarts, never halts. |
@@ -271,6 +281,7 @@ Tasks are listed below in execution order. A dagger (†) marks an opt-in task t
 | `locale` † | Set `/etc/default/locale` when `--locale` is provided. |
 | `timezone` † | Set the system timezone when `--timezone` is provided. |
 | `hostname` † | Set the system hostname when `--hostname` is provided. |
+| `cloud_init_finalize` † | Disable cloud-init after first-boot provisioning (`--cloud-init-finalize`). |
 | `limits` | Raise user/system file descriptor and process limits. |
 | `screen_blanking` | Disable console + LightDM blanking (unless `--keep-screen-blanking`). |
 | `disable_services` | Turn off non-essential services: `triggerhappy`, `bluetooth`, `hciuart`, `avahi-daemon`, `cups`, `rsyslog` (journald keeps all logs). |
@@ -280,6 +291,7 @@ Tasks are listed below in execution order. A dagger (†) marks an opt-in task t
 | `proxy` † | Manage the NGINX reverse proxy (`--proxy-backend URL` or disable). |
 | `dns_cache` † | Enable the `systemd-resolved` stub DNS cache for faster lookups (`--enable-dns-cache`). |
 | `wifi_bt_power` † | Keep Wi-Fi awake (`--wifi-powersave-off`) and optionally disable the Bluetooth stack (`--disable-bluetooth`). |
+| `usb_gadget` † | Enable or disable USB Ethernet gadget mode via `rpi-usb-gadget` (`--enable-usb-gadget`, `--disable-usb-gadget`). |
 | `node_exporter` † | Export system metrics for Prometheus on `:9100` via `prometheus-node-exporter` (`--install-node-exporter`). |
 | `tailscale` † | Install/enable Tailscale repository and service (`--install-tailscale`). |
 | `wireguard` † | Install `wireguard-tools` (mutex with Tailscale unless `--allow-both-vpn`); configure `/etc/wireguard` yourself (`--install-wireguard`). |
@@ -295,6 +307,7 @@ Tasks are listed below in execution order. A dagger (†) marks an opt-in task t
 | `watchdog` † | Enable hardware watchdog and wire systemd to feed it (`--enable-watchdog`). |
 | `ssh_import` † | Import `authorized_keys` from GitHub/URL (`--ssh-import-github`, `--ssh-import-url`). |
 | `secure_ssh` † | Harden sshd (no root login) and enable fail2ban sshd jail (`--secure-ssh`). |
+| `sudo_policy` † | Require sudo passwords or restore passwordless sudo (`--sudo-password-required`, `--sudo-passwordless`). |
 | `ufw_firewall` † | Install UFW with deny-inbound + allow-outbound; auto-opens SSH, active VPN, and proxy ports (`--install-firewall`). |
 | `omniban` † | Install the omniban unified firewall/IDS ban manager (`--install-omniban`); auto-detects installed ban backends. |
 | `cli_bundle_modern` † | Install a modern CLI bundle — `ncdu`, `ripgrep`, `fd`, `bat`, `neovim` (`--install-cli-modern`). |
@@ -302,13 +315,58 @@ Tasks are listed below in execution order. A dagger (†) marks an opt-in task t
 | `smartmontools` † | Monitor NVMe/SSD health with `smartmontools` + `smartd` (`--install-smartmontools`). |
 | `docker` † | Install Docker Engine (preferred repo or distro fallback) (`--install-docker`). |
 | `pi_connect` † | Install Raspberry Pi Connect for browser-based remote access; pair with `rpi-connect signin` (`--install-pi-connect`). |
-| `hailo` † | Pi 5/500: install the Hailo NPU driver stack for Hailo HAT hardware (`--install-hailo`). |
+| `hailo` † | Pi 5/500: install the Hailo NPU driver stack (`--install-hailo`, optional `--hailo-hardware`). |
 | `kiosk_monitor` † | Install the kiosk-monitor fullscreen Chromium/VLC watchdog (`--install-kiosk-monitor`); configure with `sudo kiosk-monitor --reconfig`. |
 | `eeprom_refresh` † | Refresh bootloader EEPROM via `rpi-eeprom-update -a` (`--eeprom-update`). |
 | `firmware_update` † | Run `rpi-update` non-interactively to pull the latest firmware (`--firmware-update`). |
 | `power_off_halt` † | Pi 5: cut 3V3 power on shutdown for ~0.01 W idle; disable if HATs need 3V3 (`--power-off-halt`). |
 
 † Runs only when the associated flag is supplied (or when explicitly disabling).
+
+### Refresh Policies
+
+Completed tasks stay completed until one of four things happens: you pass
+`--force`, the task's source metadata version changes, a task-specific tracked
+value changes, or the task has a refresh interval and is stale. `--status`
+compares the task version in the current source (`CURRENT`) against the version
+that last completed (`RAN`). On the next apply, active tasks with a version
+mismatch rerun and record the new version on success. `--freeze-task <id>` pins
+a task when you deliberately do not want that automatic source-version rerun.
+
+Maintenance checks add one more path: if a refreshable task is still selected
+and its refresh policy is due, `pi-optimiser` runs the task. Firmware tasks use
+age/manual policies. Manual upstream installers use `always`, but their task
+bodies perform a version check first and only update when the upstream version
+is newer.
+
+Defaults:
+
+| Task | Default refresh | Why |
+|------|-----------------|-----|
+| `eeprom_refresh` | 30 days | Checks for bootloader EEPROM updates from Raspberry Pi. |
+| `omniban` | always | Manual upstream installer; selected applies run `omniban update --check`, then `omniban update` only when newer. |
+| `kiosk_monitor` | always | Manual upstream installer; selected applies compare local `--version` with upstream `SCRIPT_VERSION`, then run `--update` only when newer. |
+| `firmware_update` | manual | `rpi-update` is cutting-edge firmware and should stay deliberate. |
+
+Config example:
+
+```yaml
+refresh:
+  default_min_days: ""
+  tasks:
+    eeprom_refresh: "30"
+    omniban: "always"
+    kiosk_monitor: "always"
+    firmware_update: "manual"
+```
+
+Values can be `manual`, `always`, `0` as an alias for `always`, or an integer
+day count from 1 to 3650. The TUI has a Refresh policies panel for the same
+settings. The remaining tasks are one-time configuration, repo-managed package
+installation that is kept current by `full_upgrade`, remote config fetches that
+rerun when explicitly requested, or systemd timer setup (`fstrim`, unattended
+upgrades), so they are not time-refreshed by default. `full_upgrade` is separate
+from refresh policy: it is marked `always_run`.
 
 ### Overclock Profiles
 | Model | Profile Applied | Notes |

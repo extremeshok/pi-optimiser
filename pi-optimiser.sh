@@ -3,7 +3,7 @@
 # Coded by Adrian Jon Kriel :: admin@extremeshok.com
 # Project home: https://github.com/extremeshok/pi-optimiser
 # ======================================================================
-# pi-optimiser.sh :: version 9.6.0
+# pi-optimiser.sh :: version 9.7.0
 #======================================================================
 # One-shot optimiser for Raspberry Pi OS desktops. Key capabilities:
 #   - Removes bundled bloatware and trims apt caches for a lean install
@@ -35,7 +35,7 @@ fi
 
 SCRIPT_NAME=$(basename "$0")
 readonly SCRIPT_NAME
-SCRIPT_VERSION="9.6.0"
+SCRIPT_VERSION="9.7.0"
 readonly SCRIPT_VERSION
 
 # Globals consumed by sourced lib/util/*.sh modules; shellcheck cannot
@@ -157,7 +157,6 @@ PI_REQUIRE_SIGNATURE=0
 PI_FORCE_TUI=0
 PI_NO_TUI=0
 PI_CONFIG_FILE=""
-PI_NO_CONFIG=0
 PI_LIST_PROFILES=0
 PI_VALIDATE_CONFIG_PATH=""
 PI_COMPLETION_SHELL=""
@@ -180,6 +179,14 @@ DISABLE_IPV6=0
 USB_UAS_QUIRKS=0
 USB_UAS_EXTRA=""
 INSTALL_HAILO=0
+HAILO_HARDWARE="auto"
+USB_GADGET_SET=0
+USB_GADGET_ENABLE=0
+USB_GADGET_DISABLE=0
+CLOUD_INIT_FINALIZE=0
+SUDO_POLICY_SET=0
+SUDO_POLICY_REQUIRED=0
+SUDO_POLICY_PASSWORDLESS=0
 INSTALL_OMNIBAN=0
 INSTALL_KIOSK_MONITOR=0
 
@@ -256,8 +263,19 @@ PI_RUN_REBOOT_REQUIRED=0
 declare -A PI_TASK_DESC=() PI_TASK_CATEGORY=() PI_TASK_VERSION=() \
           PI_TASK_FLAGS=() PI_TASK_POWER_SENSITIVE=() PI_TASK_DEFAULT=() \
           PI_TASK_GATE_FLAG=() PI_TASK_GATE_VAR=() PI_TASK_SKIP_VAR=() \
-          PI_TASK_REBOOT_REQUIRED=() PI_TASK_ALWAYS_RUN=() PI_TASK_RUNNER=()
+          PI_TASK_REBOOT_REQUIRED=() PI_TASK_ALWAYS_RUN=() PI_TASK_RUNNER=() \
+          PI_TASK_REFRESH_DAYS=()
 declare -a PI_TASK_ORDER=()
+
+# Refresh overrides for maintenance tasks. Empty default means "use
+# each task's registry default"; per-task values accept manual, always,
+# or an integer day interval.
+PI_REFRESH_DEFAULT_MIN_DAYS=""
+# shellcheck disable=SC2034  # populated by CLI/config; read by refresh helpers
+declare -A PI_REFRESH_TASK_MIN_DAYS=()
+PI_REFRESH_DETAIL=""
+PI_REFRESH_AGE_DAYS=""
+PI_REFRESH_NEXT_DUE=""
 
 TASK_SKIP_REASON=""
 
@@ -269,8 +287,8 @@ TASK_STATE_VERSION=""
 # Register a task with metadata. Usage:
 #   pi_task_register <id> key=value [key=value ...]
 # Recognised keys: description, category, version, flags, gate_flag,
-# gate_var, default_enabled, power_sensitive. Unknown keys are ignored
-# so newer tasks on older framework versions degrade gracefully.
+# gate_var, default_enabled, power_sensitive, refresh_days. Unknown keys
+# are ignored so newer tasks on older framework versions degrade gracefully.
 # shellcheck disable=SC2034
 pi_task_register() {
   local id=$1
@@ -289,6 +307,7 @@ pi_task_register() {
   PI_TASK_GATE_VAR[$id]=""
   PI_TASK_DEFAULT[$id]="1"
   PI_TASK_POWER_SENSITIVE[$id]="0"
+  PI_TASK_REFRESH_DAYS[$id]=""
   PI_TASK_RUNNER[$id]="run_$id"
   local arg key value
   for arg in "$@"; do
@@ -303,6 +322,7 @@ pi_task_register() {
       gate_var)        PI_TASK_GATE_VAR[$id]=$value ;;
       skip_var)        PI_TASK_SKIP_VAR[$id]=$value ;;
       reboot_required) PI_TASK_REBOOT_REQUIRED[$id]=$value ;;
+      refresh_days)    PI_TASK_REFRESH_DAYS[$id]=$value ;;
       always_run)      PI_TASK_ALWAYS_RUN[$id]=$value ;;
       default_enabled) PI_TASK_DEFAULT[$id]=$value ;;
       power_sensitive) PI_TASK_POWER_SENSITIVE[$id]=$value ;;
@@ -440,7 +460,13 @@ Options:
   --disable-ipv6         Disable IPv6 via sysctl (leaves a restorable drop-in)
   --usb-uas-quirks       Auto-detect known-bad USB-SATA adapters and disable UAS
   --usb-uas-extra <list> Extra VID:PID pairs for UAS quirks (comma-separated)
-  --install-hailo        Pi 5: install Hailo NPU drivers for Hailo HAT hardware
+  --install-hailo        Pi 5: install Hailo NPU drivers for Hailo hardware
+  --hailo-hardware <hw>  Hailo hardware family: auto | hat | hat2 (default: auto)
+  --enable-usb-gadget    Trixie: enable USB Ethernet gadget mode via rpi-usb-gadget
+  --disable-usb-gadget   Disable USB Ethernet gadget mode via rpi-usb-gadget
+  --cloud-init-finalize  Disable cloud-init after first-boot provisioning has completed
+  --sudo-password-required Remove Raspberry Pi passwordless sudo drop-ins
+  --sudo-passwordless    Restore passwordless sudo for the sudo group
   --install-omniban      Install omniban, the unified firewall/IDS ban manager
   --install-kiosk-monitor Install kiosk-monitor, the self-healing fullscreen kiosk watchdog
   --profile <name>       Apply flag bundle: kiosk | server | desktop | headless-iot
@@ -476,6 +502,10 @@ Options:
   --metrics-path <path>  Override Prometheus metrics output path
   --diff                 Preview proposed config.txt/cmdline.txt changes without writing
   --freeze-task <id>     Treat <id> as completed even if its version bumps (repeatable)
+  --refresh-default-days <days|0|manual|always>
+                          Default refresh interval for refreshable completed tasks
+  --refresh-task <task=days|0|manual|always>
+                          Override refresh interval for one refreshable task (repeatable)
   --help                 Show this help message and exit
   --version              Print script version and exit
 
@@ -588,6 +618,128 @@ pi_task_gate_active() {
   return 0
 }
 
+pi_refresh_value_valid() {
+  local value=${1,,}
+  case "$value" in
+    manual|always)
+      return 0
+      ;;
+    ''|*[!0-9]*)
+      return 1
+      ;;
+    *)
+      (( 10#$value <= 3650 ))
+      ;;
+  esac
+}
+
+pi_refresh_normalize_value() {
+  local value=${1,,}
+  if [[ $value =~ ^[0-9]+$ ]]; then
+    local days=$((10#$value))
+    [[ $days -eq 0 ]] && value="always" || value=$days
+  fi
+  if pi_refresh_value_valid "$value"; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+  return 1
+}
+
+pi_refresh_policy_for_task() {
+  local task=$1
+  local policy=""
+  if [[ -n "${PI_REFRESH_TASK_MIN_DAYS[$task]+set}" ]]; then
+    policy=${PI_REFRESH_TASK_MIN_DAYS[$task]}
+  elif [[ -n "${PI_REFRESH_DEFAULT_MIN_DAYS:-}" && -n "${PI_TASK_REFRESH_DAYS[$task]:-}" ]]; then
+    policy=$PI_REFRESH_DEFAULT_MIN_DAYS
+  else
+    policy=${PI_TASK_REFRESH_DAYS[$task]:-}
+  fi
+  [[ -n "$policy" ]] || return 1
+  pi_refresh_normalize_value "$policy"
+}
+
+pi_refresh_policy_label() {
+  local policy=$1
+  case "$policy" in
+    manual) printf '%s\n' "manual" ;;
+    always) printf '%s\n' "every apply" ;;
+    1)      printf '%s\n' "1 day" ;;
+    *)      printf '%s\n' "$policy days" ;;
+  esac
+}
+
+pi_refresh_task_due() {
+  local task=$1
+  local timestamp=$2
+  PI_REFRESH_DETAIL=""
+  PI_REFRESH_AGE_DAYS=""
+  PI_REFRESH_NEXT_DUE=""
+
+  local policy
+  policy=$(pi_refresh_policy_for_task "$task") || return 1
+  case "$policy" in
+    manual)
+      PI_REFRESH_DETAIL="refresh manual"
+      return 1
+      ;;
+    always)
+      PI_REFRESH_DETAIL="refresh every apply"
+      return 0
+      ;;
+  esac
+
+  local out
+  out=$(PI_REFRESH_TS="$timestamp" PI_REFRESH_DAYS="$policy" run_python <<'PY' || printf 'invalid\t\t\t\n'
+import os
+from datetime import datetime, timezone, timedelta
+
+raw = os.environ.get("PI_REFRESH_TS", "")
+days = int(os.environ["PI_REFRESH_DAYS"])
+try:
+    # State timestamps are ISO-8601 with an offset. Accept trailing Z too
+    # so hand-written state and older tooling still parse.
+    ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+except Exception:
+    print("invalid\t\t\t")
+    raise SystemExit(0)
+if ts.tzinfo is None:
+    ts = ts.replace(tzinfo=timezone.utc)
+now = datetime.now(ts.tzinfo)
+due = ts + timedelta(days=days)
+age = max(0, int((now - ts).total_seconds() // 86400))
+status = "due" if now >= due else "fresh"
+print(f"{status}\t{age}\t{due.date().isoformat()}\t{days}")
+PY
+  )
+  local status _refresh_days
+  IFS=$'\t' read -r status PI_REFRESH_AGE_DAYS PI_REFRESH_NEXT_DUE _refresh_days <<< "$out"
+  if [[ $status == "invalid" ]]; then
+    PI_REFRESH_DETAIL="refresh due (last timestamp unreadable)"
+    return 0
+  fi
+  if [[ $status == "due" ]]; then
+    PI_REFRESH_DETAIL="refresh due (${PI_REFRESH_AGE_DAYS}d >= ${_refresh_days}d)"
+    return 0
+  fi
+  PI_REFRESH_DETAIL="next refresh ${PI_REFRESH_NEXT_DUE}"
+  return 1
+}
+
+pi_refresh_task_status_label() {
+  local task=$1
+  local timestamp=$2
+  local policy
+  policy=$(pi_refresh_policy_for_task "$task") || return 1
+  if [[ $policy == "manual" ]]; then
+    printf '%s\n' "refresh manual"
+    return 0
+  fi
+  pi_refresh_task_due "$task" "$timestamp" || true
+  printf '%s\n' "$PI_REFRESH_DETAIL"
+}
+
 # Run a registered task with idempotent state tracking. Interprets the
 # task runner's exit code: 0=done (mark completed), 2=skipped (no state
 # change), anything else=failed.
@@ -628,16 +780,52 @@ apply_once() {
   if declare -F "$_changed_fn" >/dev/null 2>&1 && "$_changed_fn"; then
     _value_changed=0
   fi
-  if [[ $FORCE -eq 0 && ${PI_TASK_ALWAYS_RUN[$task]:-0} != "1" && $_value_changed -ne 0 ]] \
-       && is_task_done "$task"; then
-    log_info "Skipping $task (already completed)"
-    SUMMARY_SKIPPED+=("$task (already completed)")
+  local _gate_active=1
+  if pi_task_gate_active "$task"; then
+    _gate_active=0
+  fi
+  local _task_completed=1 _refresh_due=1 _refresh_detail="" \
+        _version_due=1 _version_detail="" _current_version _ran_version
+  _current_version=${PI_TASK_VERSION[$task]:-1.0.0}
+  if is_task_done "$task"; then
+    _task_completed=0
+    _ran_version=${TASK_STATE_VERSION:-}
+    if [[ ${_ran_version:-} != "$_current_version" ]]; then
+      _version_detail="task version changed (${_ran_version:-unknown} -> $_current_version)"
+      if [[ $_gate_active -eq 0 ]]; then
+        _version_due=0
+      fi
+    fi
+    if [[ $_gate_active -eq 0 && $_version_due -ne 0 && $_value_changed -ne 0 ]] \
+       && pi_refresh_task_due "$task" "$TASK_STATE_TIMESTAMP"; then
+      _refresh_due=0
+      _refresh_detail=$PI_REFRESH_DETAIL
+    elif [[ -n "${PI_TASK_REFRESH_DAYS[$task]:-}" || -n "${PI_REFRESH_TASK_MIN_DAYS[$task]+set}" ]]; then
+      _refresh_detail=$(pi_refresh_task_status_label "$task" "$TASK_STATE_TIMESTAMP" 2>/dev/null || true)
+    fi
+  fi
+  if [[ $FORCE -eq 0 && ${PI_TASK_ALWAYS_RUN[$task]:-0} != "1" && $_value_changed -ne 0 && $_version_due -ne 0 && $_refresh_due -ne 0 ]] \
+       && [[ $_task_completed -eq 0 ]]; then
+    if [[ -n "$_version_detail" && $_gate_active -ne 0 ]]; then
+      log_info "Skipping $task (already completed; $_version_detail but task is not requested)"
+      SUMMARY_SKIPPED+=("$task ($_version_detail; not requested)")
+    elif [[ -n "$_refresh_detail" && "$_refresh_detail" != "refresh manual" ]]; then
+      log_info "Skipping $task (already completed; $_refresh_detail)"
+      SUMMARY_SKIPPED+=("$task ($_refresh_detail)")
+    else
+      log_info "Skipping $task (already completed)"
+      SUMMARY_SKIPPED+=("$task (already completed)")
+    fi
     return 0
   fi
-  if [[ $_value_changed -eq 0 ]] && is_task_done "$task"; then
+  if [[ $_value_changed -eq 0 && $_task_completed -eq 0 ]]; then
     log_info "Re-running $task: requested value differs from current system state"
+  elif [[ $_version_due -eq 0 ]] && [[ $_task_completed -eq 0 ]]; then
+    log_info "Re-running $task: $_version_detail"
+  elif [[ $_refresh_due -eq 0 ]] && [[ $_task_completed -eq 0 ]]; then
+    log_info "Re-running $task: $_refresh_detail"
   fi
-  if [[ $FORCE -eq 1 && $DRY_RUN -eq 0 ]] && pi_task_gate_active "$task"; then
+  if [[ $FORCE -eq 1 && $DRY_RUN -eq 0 && $_gate_active -eq 0 ]]; then
     # --force re-runs a task, so drop its completion marker to bypass the
     # is_task_done short-circuit. Guards:
     #   - $DRY_RUN -eq 0: --dry-run must not mutate state.json.
@@ -710,8 +898,9 @@ apply_once() {
 
 # Show current task status table, walking the registry in manifest order.
 # The "current" column is the task's version on disk today; "ran" is the
-# version that was recorded the last time the task completed. Divergence
-# is a hint that the task may want a --force re-run.
+# version that was recorded the last time the task completed. When they
+# diverge, the next active apply reruns the task and records the new
+# version on success.
 print_status() {
   ensure_marker_store
   if [[ ${PI_OUTPUT_JSON:-0} -eq 1 ]]; then
@@ -729,6 +918,14 @@ print_status() {
       timestamp="$TASK_STATE_TIMESTAMP"
       details="$TASK_STATE_DESC"
       ran_v=${TASK_STATE_VERSION:-"--"}
+      if [[ "$status" == "completed" ]]; then
+        if [[ "$ran_v" != "--" && "$ran_v" != "$current_v" ]]; then
+          details+=" [task update pending: $ran_v -> $current_v]"
+        fi
+        local refresh_label
+        refresh_label=$(pi_refresh_task_status_label "$task" "$timestamp" 2>/dev/null || true)
+        [[ -n "$refresh_label" ]] && details+=" [$refresh_label]"
+      fi
     else
       status="pending"
       timestamp="--"
@@ -742,10 +939,22 @@ print_status() {
 
 # JSON variant used when --output json is set.
 _print_status_json() {
-  STATE_JSON_PATH="$STATE_JSON_FILE" PI_ORDER_LIST="${PI_TASK_ORDER[*]}" run_python <<'PY'
+  local _version_pairs="" _task
+  for _task in "${PI_TASK_ORDER[@]}"; do
+    _version_pairs+="${_task}=${PI_TASK_VERSION[$_task]:-1.0.0}"$'\n'
+  done
+  STATE_JSON_PATH="$STATE_JSON_FILE" \
+  PI_ORDER_LIST="${PI_TASK_ORDER[*]}" \
+  PI_TASK_VERSION_LIST="$_version_pairs" \
+  run_python <<'PY'
 import json, os, sys
 state_path = os.environ.get("STATE_JSON_PATH", "")
 order = os.environ.get("PI_ORDER_LIST", "").split()
+versions = {}
+for raw in os.environ.get("PI_TASK_VERSION_LIST", "").splitlines():
+    if "=" in raw:
+        tid, version = raw.split("=", 1)
+        versions[tid] = version
 try:
     with open(state_path) as fh:
         state = json.load(fh)
@@ -760,11 +969,15 @@ out = {
 }
 for tid in order:
     rec = tasks_state.get(tid, {})
+    current_version = versions.get(tid, "1.0.0")
+    ran_version = rec.get("task_version")
     out["tasks"].append({
         "id": tid,
         "status": rec.get("status", "pending"),
         "timestamp": rec.get("timestamp"),
-        "task_version_ran": rec.get("task_version"),
+        "task_version_current": current_version,
+        "task_version_ran": ran_version,
+        "task_version_pending": bool(ran_version and ran_version != current_version),
         "description": rec.get("description"),
     })
 json.dump(out, sys.stdout, indent=2, sort_keys=True)
@@ -1025,6 +1238,41 @@ parse_args() {
         USB_UAS_EXTRA=$2; USB_UAS_QUIRKS=1; shift
         ;;
       --install-hailo)       INSTALL_HAILO=1 ;;
+      --hailo-hardware)
+        if [[ $# -lt 2 ]]; then echo "--hailo-hardware requires a value (auto|hat|hat2)" >&2; exit 1; fi
+        case ${2,,} in
+          auto|hat|hat2)
+            HAILO_HARDWARE=${2,,}
+            INSTALL_HAILO=1
+            ;;
+          *)
+            echo "Unsupported --hailo-hardware value: $2 (allowed: auto, hat, hat2)" >&2
+            exit 1
+            ;;
+        esac
+        shift
+        ;;
+      --enable-usb-gadget)
+        USB_GADGET_SET=1
+        USB_GADGET_ENABLE=1
+        USB_GADGET_DISABLE=0
+        ;;
+      --disable-usb-gadget)
+        USB_GADGET_SET=1
+        USB_GADGET_ENABLE=0
+        USB_GADGET_DISABLE=1
+        ;;
+      --cloud-init-finalize) CLOUD_INIT_FINALIZE=1 ;;
+      --sudo-password-required)
+        SUDO_POLICY_SET=1
+        SUDO_POLICY_REQUIRED=1
+        SUDO_POLICY_PASSWORDLESS=0
+        ;;
+      --sudo-passwordless)
+        SUDO_POLICY_SET=1
+        SUDO_POLICY_REQUIRED=0
+        SUDO_POLICY_PASSWORDLESS=1
+        ;;
       --install-omniban)     INSTALL_OMNIBAN=1 ;;
       --install-kiosk-monitor) INSTALL_KIOSK_MONITOR=1 ;;
       --docker-cgroupv2)      DOCKER_CGROUPV2=1 ;;
@@ -1043,7 +1291,7 @@ parse_args() {
         if [[ $# -lt 2 ]]; then echo "--config requires a path" >&2; exit 1; fi
         PI_CONFIG_FILE=$2; shift
         ;;
-      --no-config)           PI_NO_CONFIG=1 ;;
+      --no-config)           : ;;
       --list-profiles)       PI_LIST_PROFILES=1 ;;
       --validate-config)
         if [[ $# -lt 2 ]]; then echo "--validate-config requires a path" >&2; exit 1; fi
@@ -1135,6 +1383,34 @@ parse_args() {
         if ! [[ $2 =~ ^[a-z0-9_]+$ ]]; then echo "--freeze-task '$2' is not a valid task id" >&2; exit 1; fi
         PI_FROZEN_TASKS[$2]=1; shift
         ;;
+      --refresh-default-days)
+        if [[ $# -lt 2 ]]; then echo "--refresh-default-days requires a value" >&2; exit 1; fi
+        if ! PI_REFRESH_DEFAULT_MIN_DAYS=$(pi_refresh_normalize_value "$2"); then
+          echo "--refresh-default-days expects manual, always, 0, or an integer day count (1..3650)" >&2
+          exit 1
+        fi
+        shift
+        ;;
+      --refresh-task)
+        if [[ $# -lt 2 ]]; then echo "--refresh-task requires task=value" >&2; exit 1; fi
+        local _refresh_pair=$2 _refresh_task _refresh_value
+        _refresh_task=${_refresh_pair%%=*}
+        _refresh_value=${_refresh_pair#*=}
+        if [[ "$_refresh_task" == "$_refresh_pair" || -z "$_refresh_task" || -z "$_refresh_value" ]]; then
+          echo "--refresh-task expects task=value, e.g. eeprom_refresh=30" >&2
+          exit 1
+        fi
+        if ! validate_task_id "$_refresh_task"; then
+          echo "--refresh-task: invalid task id '$_refresh_task' (expected snake_case)" >&2
+          exit 1
+        fi
+        if ! _refresh_value=$(pi_refresh_normalize_value "$_refresh_value"); then
+          echo "--refresh-task expects manual, always, 0, or an integer day count (1..3650)" >&2
+          exit 1
+        fi
+        PI_REFRESH_TASK_MIN_DAYS[$_refresh_task]=$_refresh_value
+        shift
+        ;;
       --help|-h)
         usage
         exit 0
@@ -1182,16 +1458,6 @@ pi_validate_mutex() {
     rc=1
   fi
 
-  # CPU governor=performance pinning vs underclock — philosophically
-  # contradictory (the service pins to 'performance' while underclock
-  # flips the live governor to 'powersave' on apply). The underclock
-  # task already backs off when OC is requested; here we warn softly
-  # rather than block, since the user may want the kernel governor
-  # pinned even with a lower ceiling.
-  if [[ ${REQUEST_UNDERCLOCK:-0} -eq 1 ]]; then
-    :  # Reserved: future soft warning hook.
-  fi
-
   # ZRAM install + zram-algo=disabled — not strictly conflicting (the
   # disabled branch wins and tears down zram-generator.conf) but worth
   # a warning so the user isn't surprised.
@@ -1199,6 +1465,18 @@ pi_validate_mutex() {
     echo "pi-optimiser: install-zram + zram-algo=disabled — the 'disabled' branch wins." >&2
     echo "  Drop install-zram to tear ZRAM down, or drop zram-algo=disabled to install." >&2
     # Soft conflict: don't raise rc.
+  fi
+
+  if [[ ${USB_GADGET_ENABLE:-0} -eq 1 && ${USB_GADGET_DISABLE:-0} -eq 1 ]]; then
+    echo "pi-optimiser: USB gadget enable and disable were both selected." >&2
+    echo "  Pick --enable-usb-gadget or --disable-usb-gadget, not both." >&2
+    rc=1
+  fi
+
+  if [[ ${SUDO_POLICY_REQUIRED:-0} -eq 1 && ${SUDO_POLICY_PASSWORDLESS:-0} -eq 1 ]]; then
+    echo "pi-optimiser: sudo password-required and passwordless policies conflict." >&2
+    echo "  Pick --sudo-password-required or --sudo-passwordless, not both." >&2
+    rc=1
   fi
 
   return $rc
@@ -1210,90 +1488,6 @@ pi_validate_mutex() {
 is_power_sensitive_task() {
   [[ ${PI_TASK_POWER_SENSITIVE[$1]:-0} == "1" ]]
 }
-
-# Compute ZRAM size based on RAM tier with sensible caps.
-
-# Purge optional desktop software and clean apt caches.
-
-# Apply noatime and commit adjustments to root filesystem entry.
-
-# Disable legacy swapfile service and ensure swap is off.
-
-# Select preferred ZRAM compression algorithm (default lz4).
-
-# Configure or disable systemd zram generator with sized swap device.
-
-# Keep systemd journal in RAM with modest size limits.
-
-# Apply kernel tuning for memory, file limits, and networking.
-
-# Harden apt behaviour and disable automatic background jobs.
-
-
-# Configure security-only unattended upgrades on a timer.
-
-# Ensure essential command-line utilities are installed.
-
-# Set system locale when requested via --locale flag.
-
-
-# Manage nginx reverse proxy configuration and lifecycle.
-# Raise system and user ulimit defaults for file descriptors/processes.
-
-# Disable non-essential background services for kiosk workloads.
-
-# Configure Tailscale repository and install client when requested.
-
-# Install Docker Engine (upstream if possible) and enable service.
-
-# Turn off console and desktop blanking/DPMS for kiosk screens.
-
-
-# Relocate /var/log to tmpfs with supporting tmpfiles rules.
-
-
-# Apply vc4 KMS display defaults when supported by hardware.
-
-# Ensure vc4 overlays disable liftoff to prevent compositor glitches.
-
-
-# Apply vendor-safe CPU/GPU overclock profiles for Pi 5/500/4/400/3/Zero 2.
-
-
-# Harden sshd configuration and enable fail2ban protection.
-
-
-# Install systemd service that pins the CPU scaling governor to performance.
-
-
-# Apply SDRAM_BANKLOW tuning to the Raspberry Pi bootloader EEPROM.
-
-
-# Install latest Raspberry Pi firmware via rpi-update (opt-in, non-interactive).
-
-
-# Enable fstrim.timer for periodic TRIM on SSD/NVMe/eMMC roots.
-
-
-# Set the system timezone when requested via --timezone.
-
-
-# Set the system hostname when requested via --hostname.
-
-
-# Import authorized_keys from a GitHub user and/or arbitrary HTTPS URL.
-
-
-# Enable the Raspberry Pi hardware watchdog and wire systemd to feed it.
-
-
-# Apply a Pi 5 PWM fan curve to config.txt (temperatures in millidegrees).
-
-
-# Refresh the Raspberry Pi bootloader EEPROM via rpi-eeprom-update.
-
-
-# Ensure /tmp lives on tmpfs to reduce SD card writes.
 
 # Consolidated EXIT handler used by main's trap. Cleans up scratch
 # state that pi_diff_flush / feature end-of-run paths would normally
@@ -1374,7 +1568,8 @@ main() {
   PI_CLI_ACTION_FLAGS+=(
     --usb-uas-extra --zram-algo --temp-limit --temp-soft-limit
     --initial-turbo --docker-buildx-multiarch --docker-cgroupv2
-    --wifi-powersave-off --disable-bluetooth
+    --wifi-powersave-off --disable-bluetooth --hailo-hardware
+    --refresh-default-days --refresh-task
   )
 
   # Pre-scan argv for flags that change config-load decisions. We need
@@ -1444,6 +1639,20 @@ main() {
     for _fid in "${!PI_FROZEN_TASKS[@]}"; do
       if [[ -z "${PI_TASK_DESC[$_fid]:-}" ]]; then
         echo "pi-optimiser: --freeze-task '$_fid' is not a registered task id" >&2
+        exit 1
+      fi
+    done
+  fi
+
+  if (( ${#PI_REFRESH_TASK_MIN_DAYS[@]} > 0 )); then
+    local _rid
+    for _rid in "${!PI_REFRESH_TASK_MIN_DAYS[@]}"; do
+      if [[ -z "${PI_TASK_DESC[$_rid]:-}" ]]; then
+        echo "pi-optimiser: refresh override '$_rid' is not a registered task id" >&2
+        exit 1
+      fi
+      if [[ -z "${PI_TASK_REFRESH_DAYS[$_rid]:-}" ]]; then
+        echo "pi-optimiser: refresh override '$_rid' is not refreshable" >&2
         exit 1
       fi
     done

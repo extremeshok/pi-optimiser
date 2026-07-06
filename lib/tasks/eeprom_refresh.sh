@@ -1,24 +1,26 @@
 # >>> pi-task
 # id: eeprom_refresh
-# version: 1.1.0
+# version: 1.2.0
 # description: Refresh the Raspberry Pi bootloader EEPROM
 # category: firmware-eeprom
 # default_enabled: 0
 # power_sensitive: 1
 # flags: --eeprom-update
 # gate_var: EEPROM_UPDATE
-# reboot_required: true
+# reboot_required: conditional
+# refresh_days: 30
 # <<< pi-task
 
 pi_task_register eeprom_refresh \
   description="Refresh the Raspberry Pi bootloader EEPROM" \
   category=firmware-eeprom \
-  version=1.1.0 \
+  version=1.2.0 \
   default_enabled=0 \
   power_sensitive=1 \
   flags="--eeprom-update" \
   gate_var=EEPROM_UPDATE \
-  reboot_required=1
+  reboot_required=conditional \
+  refresh_days=30
 
 run_eeprom_refresh() {
   if [[ $EEPROM_UPDATE -eq 0 ]]; then
@@ -40,8 +42,16 @@ run_eeprom_refresh() {
   local out rc=0
   out=$(rpi-eeprom-update -a 2>&1) || rc=$?
   if [[ $rc -eq 0 ]]; then
+    local now
+    now=$(date --iso-8601=seconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')
+    write_json_field "$CONFIG_OPTIMISER_STATE" "eeprom.last_check" "$now"
+    if grep -Eiq 'BOOTLOADER:[[:space:]]*up[ -]?to[ -]?date|up[ -]?to[ -]?date|no update' <<<"$out"; then
+      log_info "rpi-eeprom-update checked successfully; bootloader EEPROM is already current"
+      return 0
+    fi
     log_info "rpi-eeprom-update -a completed; reboot required to apply new EEPROM"
-    write_json_field "$CONFIG_OPTIMISER_STATE" "eeprom.last_update" "$(date --iso-8601=seconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')"
+    write_json_field "$CONFIG_OPTIMISER_STATE" "eeprom.last_update" "$now"
+    pi_mark_reboot_required eeprom_refresh
     return 0
   fi
   log_warn "rpi-eeprom-update returned exit code $rc"

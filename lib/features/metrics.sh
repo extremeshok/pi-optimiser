@@ -81,7 +81,6 @@ pi_metrics_write() {
   # on textfile_collector since node-exporter polls every 15s, but
   # pre-rename set is cleaner).
   chmod 0644 "$tmp" 2>/dev/null || true
-  local _metrics_cleanup
   # shellcheck disable=SC2064
   trap "rm -f '$tmp'" RETURN
   {

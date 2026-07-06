@@ -14,6 +14,7 @@
 #   hardware: { overclock_conservative, pi5_fan_profile, ... }
 #   security: { secure_ssh, ssh_import_github, ssh_import_url }
 #   system:   { hostname, timezone, locale, keep_screen_blanking }
+#   refresh:  { default_min_days, tasks: { task_id: days|manual|always } }
 # ======================================================================
 
 PI_CONFIG_DEFAULT="/etc/pi-optimiser/config.yaml"
@@ -23,6 +24,25 @@ pi_config_save() {
   local _frozen_ids=""
   if declare -p PI_FROZEN_TASKS >/dev/null 2>&1 && (( ${#PI_FROZEN_TASKS[@]} > 0 )); then
     _frozen_ids="${!PI_FROZEN_TASKS[*]}"
+  fi
+  local _refresh_task_pairs="" _refresh_task _refresh_value
+  if declare -p PI_TASK_REFRESH_DAYS >/dev/null 2>&1; then
+    for _refresh_task in "${!PI_TASK_REFRESH_DAYS[@]}"; do
+      [[ -n "${PI_TASK_REFRESH_DAYS[$_refresh_task]:-}" ]] || continue
+      _refresh_value=${PI_REFRESH_TASK_MIN_DAYS[$_refresh_task]:-${PI_TASK_REFRESH_DAYS[$_refresh_task]}}
+      _refresh_task_pairs+="${_refresh_task}=${_refresh_value}"$'\n'
+    done
+  fi
+  local _usb_gadget_mode="" _sudo_policy_mode=""
+  if [[ ${USB_GADGET_DISABLE:-0} -eq 1 ]]; then
+    _usb_gadget_mode="disable"
+  elif [[ ${USB_GADGET_SET:-0} -eq 1 || ${USB_GADGET_ENABLE:-0} -eq 1 ]]; then
+    _usb_gadget_mode="enable"
+  fi
+  if [[ ${SUDO_POLICY_PASSWORDLESS:-0} -eq 1 ]]; then
+    _sudo_policy_mode="passwordless"
+  elif [[ ${SUDO_POLICY_SET:-0} -eq 1 || ${SUDO_POLICY_REQUIRED:-0} -eq 1 ]]; then
+    _sudo_policy_mode="password-required"
   fi
   mkdir -p "$(dirname "$path")"
   PI_CONFIG_PATH="$path" \
@@ -42,6 +62,7 @@ pi_config_save() {
   V_DNS_CACHE="${ENABLE_DNS_CACHE:-0}" \
   V_PI_CONNECT="${INSTALL_PI_CONNECT:-0}" \
   V_HAILO="${INSTALL_HAILO:-0}" \
+  V_HAILO_HW="${HAILO_HARDWARE:-auto}" \
   V_CHRONY="${INSTALL_CHRONY:-0}" \
   V_DISABLE_IPV6="${DISABLE_IPV6:-0}" \
   V_OMNIBAN="${INSTALL_OMNIBAN:-0}" \
@@ -62,11 +83,13 @@ pi_config_save() {
   V_HEADLESS_GPU="${HEADLESS_GPU_MEM:-0}" \
   V_USB_UAS="${USB_UAS_QUIRKS:-0}" \
   V_USB_UAS_EXTRA="${USB_UAS_EXTRA:-}" \
+  V_USB_GADGET_MODE="$_usb_gadget_mode" \
   V_FW_UPDATE="${FIRMWARE_UPDATE:-0}" \
   V_EEPROM="${EEPROM_UPDATE:-0}" \
   V_POWER_OFF_HALT="${POWER_OFF_HALT:-0}" \
   V_SECURE_SSH="${SECURE_SSH:-0}" \
   V_FIREWALL="${INSTALL_FIREWALL:-0}" \
+  V_SUDO_POLICY="$_sudo_policy_mode" \
   V_GH="${SSH_IMPORT_GITHUB:-}" \
   V_URL="${SSH_IMPORT_URL:-}" \
   V_HOSTNAME="${REQUESTED_HOSTNAME:-}" \
@@ -74,9 +97,12 @@ pi_config_save() {
   V_LOCALE="${REQUESTED_LOCALE:-}" \
   V_KEEP_BLANK="${KEEP_SCREEN_BLANKING:-0}" \
   V_REMOVE_CUPS="${REMOVE_CUPS:-0}" \
+  V_CLOUD_INIT_FINALIZE="${CLOUD_INIT_FINALIZE:-0}" \
   V_PROXY="${PROXY_BACKEND:-}" \
   V_METRICS_ENABLED="${PI_METRICS_ENABLED:-1}" \
   V_METRICS_PATH="${PI_METRICS_PATH:-}" \
+  V_REFRESH_DEFAULT="${PI_REFRESH_DEFAULT_MIN_DAYS:-}" \
+  V_REFRESH_TASKS="$_refresh_task_pairs" \
   V_FROZEN="$_frozen_ids" \
   run_python <<'PY'
 import os
@@ -115,6 +141,7 @@ lines.append(f'  net_diag: {b("V_NET_DIAG")}')
 lines.append(f'  dns_cache: {b("V_DNS_CACHE")}')
 lines.append(f'  pi_connect: {b("V_PI_CONNECT")}')
 lines.append(f'  hailo: {b("V_HAILO")}')
+lines.append(f'  hailo_hardware: "{s("V_HAILO_HW") or "auto"}"')
 lines.append(f'  chrony: {b("V_CHRONY")}')
 lines.append(f'  disable_ipv6: {b("V_DISABLE_IPV6")}')
 lines.append(f'  omniban: {b("V_OMNIBAN")}')
@@ -136,6 +163,7 @@ lines.append(f'  nvme_tune: {b("V_NVME_TUNE")}')
 lines.append(f'  headless_gpu_mem: {b("V_HEADLESS_GPU")}')
 lines.append(f'  usb_uas_quirks: {b("V_USB_UAS")}')
 lines.append(f'  usb_uas_extra: "{s("V_USB_UAS_EXTRA")}"')
+lines.append(f'  usb_gadget: "{s("V_USB_GADGET_MODE")}"')
 lines.append("firmware:")
 lines.append(f'  firmware_update: {b("V_FW_UPDATE")}')
 lines.append(f'  eeprom_update: {b("V_EEPROM")}')
@@ -143,6 +171,7 @@ lines.append(f'  power_off_halt: {b("V_POWER_OFF_HALT")}')
 lines.append("security:")
 lines.append(f'  secure_ssh: {b("V_SECURE_SSH")}')
 lines.append(f'  firewall: {b("V_FIREWALL")}')
+lines.append(f'  sudo_policy: "{s("V_SUDO_POLICY")}"')
 lines.append(f'  ssh_import_github: "{s("V_GH")}"')
 lines.append(f'  ssh_import_url: "{s("V_URL")}"')
 lines.append("system:")
@@ -151,6 +180,21 @@ lines.append(f'  timezone: "{s("V_TZ")}"')
 lines.append(f'  locale: "{s("V_LOCALE")}"')
 lines.append(f'  keep_screen_blanking: {b("V_KEEP_BLANK")}')
 lines.append(f'  remove_cups: {b("V_REMOVE_CUPS")}')
+lines.append(f'  cloud_init_finalize: {b("V_CLOUD_INIT_FINALIZE")}')
+lines.append("refresh:")
+lines.append(f'  default_min_days: "{s("V_REFRESH_DEFAULT")}"')
+lines.append("  tasks:")
+refresh_pairs = []
+for raw in os.environ.get("V_REFRESH_TASKS", "").splitlines():
+    if "=" not in raw:
+        continue
+    task, value = raw.split("=", 1)
+    task = task.strip()
+    value = value.strip()
+    if task and value:
+        refresh_pairs.append((task, value))
+for task, value in sorted(refresh_pairs):
+    lines.append(f'    {task}: "{value}"')
 lines.append("metrics:")
 lines.append(f'  enabled: {b("V_METRICS_ENABLED")}')
 lines.append(f'  path: "{s("V_METRICS_PATH")}"')
@@ -299,6 +343,23 @@ def valid_usb_uas_list(value):
         value,
     ) is not None
 
+def valid_refresh_value(value):
+    value = str(value).strip().lower()
+    if value in ("manual", "always"):
+        return True
+    if re.match(r"^[0-9]+$", value):
+        return int(value) <= 3650
+    return False
+
+def normalize_refresh_value(value):
+    value = str(value).strip().lower()
+    if re.match(r"^[0-9]+$", value):
+        days = int(value)
+        if days == 0:
+            return "always"
+        return str(days)
+    return value
+
 out = []
 def has(d, *keys):
     cur = d
@@ -356,6 +417,13 @@ emit_bool("INSTALL_NET_DIAG", i, "net_diag")
 emit_bool("ENABLE_DNS_CACHE", i, "dns_cache")
 emit_bool("INSTALL_PI_CONNECT", i, "pi_connect")
 emit_bool("INSTALL_HAILO", i, "hailo")
+_hailo_hw = get_str(i, "hailo_hardware", default="").strip().lower()
+if _hailo_hw:
+    if _hailo_hw not in ("auto", "hat", "hat2"):
+        out.append('echo "pi-optimiser: invalid hailo_hardware in config (allowed: auto, hat, hat2)" >&2')
+        out.append("return 1")
+    else:
+        out.append(f'HAILO_HARDWARE={sv(_hailo_hw)}')
 emit_bool("INSTALL_CHRONY", i, "chrony")
 emit_bool("DISABLE_IPV6", i, "disable_ipv6")
 emit_bool("INSTALL_OMNIBAN", i, "omniban")
@@ -381,6 +449,15 @@ if _uas_extra:
         out.append("return 1")
     else:
         out.append(f'USB_UAS_EXTRA={sv(_uas_extra)}; USB_UAS_QUIRKS=1')
+_usb_gadget = get_str(h, "usb_gadget", default="").strip().lower()
+if _usb_gadget:
+    if _usb_gadget in ("enable", "enabled", "on", "true", "1"):
+        out.append('USB_GADGET_SET=1; USB_GADGET_ENABLE=1; USB_GADGET_DISABLE=0')
+    elif _usb_gadget in ("disable", "disabled", "off", "false", "0"):
+        out.append('USB_GADGET_SET=1; USB_GADGET_ENABLE=0; USB_GADGET_DISABLE=1')
+    else:
+        out.append('echo "pi-optimiser: invalid hardware.usb_gadget in config (allowed: enable, disable)" >&2')
+        out.append("return 1")
 for v in ("temp_limit", "temp_soft_limit", "initial_turbo"):
     val = get(h, v)
     if val:
@@ -397,6 +474,15 @@ emit_bool("SECURE_SSH", s, "secure_ssh")
 emit_str("SSH_IMPORT_GITHUB", s, "ssh_import_github")
 emit_str("SSH_IMPORT_URL", s, "ssh_import_url")
 emit_bool("INSTALL_FIREWALL", s, "firewall")
+_sudo_policy = get_str(s, "sudo_policy", default="").strip().lower()
+if _sudo_policy:
+    if _sudo_policy in ("password-required", "required", "password", "require-password"):
+        out.append('SUDO_POLICY_SET=1; SUDO_POLICY_REQUIRED=1; SUDO_POLICY_PASSWORDLESS=0')
+    elif _sudo_policy in ("passwordless", "nopasswd", "no-password"):
+        out.append('SUDO_POLICY_SET=1; SUDO_POLICY_REQUIRED=0; SUDO_POLICY_PASSWORDLESS=1')
+    else:
+        out.append('echo "pi-optimiser: invalid security.sudo_policy in config (allowed: password-required, passwordless)" >&2')
+        out.append("return 1")
 
 sy = data.get("system", {})
 emit_str("REQUESTED_HOSTNAME", sy, "hostname")
@@ -404,6 +490,32 @@ emit_str("REQUESTED_TIMEZONE", sy, "timezone")
 emit_str("REQUESTED_LOCALE", sy, "locale")
 emit_bool("KEEP_SCREEN_BLANKING", sy, "keep_screen_blanking")
 emit_bool("REMOVE_CUPS", sy, "remove_cups")
+emit_bool("CLOUD_INIT_FINALIZE", sy, "cloud_init_finalize")
+
+# Refresh policy for completed maintenance tasks.
+r = data.get("refresh", {})
+if isinstance(r, dict):
+    default_refresh = normalize_refresh_value(get_str(r, "default_min_days"))
+    if default_refresh:
+        if not valid_refresh_value(default_refresh):
+            out.append('echo "pi-optimiser: invalid refresh.default_min_days in config" >&2')
+            out.append("return 1")
+        else:
+            out.append(f'PI_REFRESH_DEFAULT_MIN_DAYS={sv(default_refresh)}')
+    refresh_tasks = get(r, "tasks", default={})
+    if isinstance(refresh_tasks, dict):
+        for task, value in sorted(refresh_tasks.items()):
+            task = str(task).strip()
+            val = normalize_refresh_value(value)
+            if not re.match(r"^[a-z0-9_]+$", task):
+                out.append('echo "pi-optimiser: invalid refresh task id in config" >&2')
+                out.append("return 1")
+                continue
+            if not valid_refresh_value(val):
+                out.append(f'echo {sv("pi-optimiser: invalid refresh interval for " + task)} >&2')
+                out.append("return 1")
+                continue
+            out.append(f'PI_REFRESH_TASK_MIN_DAYS[{sv(task)}]={sv(val)}')
 
 # Prometheus metrics opt-in + optional path override.
 m = data.get("metrics", {})

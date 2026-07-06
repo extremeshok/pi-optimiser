@@ -1,41 +1,85 @@
 # >>> pi-task
 # id: hailo
-# version: 1.0.0
+# version: 1.1.0
 # description: Install Hailo NPU drivers for Raspberry Pi Hailo hardware (Pi 5)
 # category: integrations
 # default_enabled: 0
 # power_sensitive: 0
-# flags: --install-hailo
+# flags: --install-hailo,--hailo-hardware
 # gate_var: INSTALL_HAILO
+# reboot_required: true
 # <<< pi-task
 
 pi_task_register hailo \
   description="Install Hailo NPU drivers for Raspberry Pi Hailo hardware (Pi 5)" \
   category=integrations \
-  version=1.0.0 \
+  version=1.1.0 \
   default_enabled=0 \
-  flags="--install-hailo" \
-  gate_var=INSTALL_HAILO
+  flags="--install-hailo,--hailo-hardware" \
+  gate_var=INSTALL_HAILO \
+  reboot_required=1
 
-# Raspberry Pi Hailo HAT hardware attaches a Hailo-8(L|R) NPU over
-# PCIe. The stack is shipped in Raspberry Pi OS as the `hailo-all`
-# metapackage, which pulls:
-#   - hailo-dkms            kernel module (needs the kernel headers)
-#   - hailort               userspace runtime
-#   - python3-hailort       Python bindings
-#   - hailo-tappas-core     post-processing library
-#   - hailofw               NPU firmware
+_hailo_pkg_installed() {
+  local pkg=$1
+  dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -qx 'install ok installed'
+}
+
+_hailo_label() {
+  case $1 in
+    hat)  printf '%s\n' "Kit / HAT+ (hailo-all)" ;;
+    hat2) printf '%s\n' "HAT+ 2 (hailo-h10-all)" ;;
+    *)    printf '%s\n' "$1" ;;
+  esac
+}
+
+_hailo_normalize_hardware() {
+  local hw=${1:-auto}
+  hw=${hw,,}
+  case $hw in
+    auto|hat|hat2)
+      printf '%s\n' "$hw"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+_hailo_detect_hardware() {
+  if _hailo_pkg_installed hailo-h10-all; then
+    printf '%s\n' "hat2"
+    return 0
+  fi
+  if _hailo_pkg_installed hailo-all || _hailo_pkg_installed hailo-dkms; then
+    printf '%s\n' "hat"
+    return 0
+  fi
+  if command -v lspci >/dev/null 2>&1; then
+    local pci
+    pci=$(lspci -nn 2>/dev/null | grep -i 'hailo' || true)
+    if [[ -n "$pci" ]]; then
+      if grep -Eiq 'Hailo-10H|Hailo[[:space:]-]?10' <<<"$pci"; then
+        printf '%s\n' "hat2"
+        return 0
+      fi
+      if grep -Eiq 'Hailo-8L?|Hailo[[:space:]-]?8' <<<"$pci"; then
+        printf '%s\n' "hat"
+        return 0
+      fi
+      return 2
+    fi
+  fi
+  return 1
+}
+
+# Raspberry Pi currently ships two mutually-exclusive Hailo package
+# families:
+#   hat  -> hailo-all      for Kit / HAT+
+#   hat2 -> hailo-h10-all  for HAT+ 2
 #
-# Prerequisites that this task verifies (and warns about) rather
-# than silently failing on:
-#   - Pi 5 / Pi 500 only (the PCIe connector only exists there).
-#   - Kernel 6.6.31+ (the DKMS module fails to build on older).
-#   - PCIe Gen 3 helps throughput but isn't mandatory.
-#   - Actual NPU visible via lspci (we warn if not; install still
-#     proceeds because the operator may be prepping an image).
-#
-# Pairing the NPU (downloading models, running inference) is outside
-# this task. The Raspberry Pi and Hailo docs cover model setup.
+# The default CLI mode is `--hailo-hardware auto`. Auto installs only
+# when an installed package or PCIe probe identifies the Hailo family;
+# explicit `hat` / `hat2` keeps image-prep workflows possible.
 run_hailo() {
   if [[ ${INSTALL_HAILO:-0} -eq 0 ]]; then
     log_info "Hailo NPU driver install not requested; skipping"
@@ -46,6 +90,35 @@ run_hailo() {
     log_info "Hailo NPU hardware is Pi 5 / Pi 500 only; skipping on ${SYSTEM_MODEL:-unknown}"
     pi_skip_reason "model unsupported"
     return 2
+  fi
+
+  local requested hardware detect_rc=0
+  if ! requested=$(_hailo_normalize_hardware "${HAILO_HARDWARE:-auto}"); then
+    log_error "Unsupported Hailo hardware selection: ${HAILO_HARDWARE:-}"
+    return 1
+  fi
+  hardware=$requested
+  if [[ $requested == "auto" ]]; then
+    hardware=$(_hailo_detect_hardware) || detect_rc=$?
+    case $detect_rc in
+      0)
+        log_info "Detected Hailo hardware family: $(_hailo_label "$hardware")"
+        ;;
+      2)
+        log_warn "Hailo device detected on PCIe, but the hardware family is unknown"
+        log_warn "Re-run with --hailo-hardware hat or --hailo-hardware hat2 if you know the board"
+        pi_skip_reason "unknown Hailo hardware"
+        return 2
+        ;;
+      *)
+        log_info "No Hailo hardware detected; auto mode is skipping driver installation"
+        log_info "For image preparation without attached hardware, pass --hailo-hardware hat or hat2"
+        pi_skip_reason "no Hailo hardware detected"
+        return 2
+        ;;
+    esac
+  else
+    log_info "Using requested Hailo hardware family: $(_hailo_label "$hardware")"
   fi
 
   # Kernel version guard. hailo-dkms refuses to build on < 6.6.31.
@@ -61,30 +134,48 @@ run_hailo() {
     fi
   fi
 
-  # Hardware probe — informational only; don't block install.
-  if command -v lspci >/dev/null 2>&1; then
-    if lspci 2>/dev/null | grep -qi 'hailo'; then
-      log_info "Hailo NPU detected on PCIe"
-    else
-      log_warn "No Hailo device reported by lspci; installing drivers anyway (OK for image prep)"
-    fi
+  # PCIe Gen 3 is only needed for the older M.2 Kit; the HAT+ boards
+  # apply their own PCIe tuning. We cannot reliably distinguish Kit vs
+  # HAT+ from lspci, so keep this as an informational tip for hailo-all.
+  if [[ $hardware == "hat" && ${INSTALL_PCIE_GEN3:-0} -ne 1 ]]; then
+    log_info "Tip: Hailo Kit users should pair this with --pcie-gen3 for full throughput"
   fi
 
-  # Suggest PCIe Gen 3 for HAT+ users; not an error.
-  if [[ ${INSTALL_PCIE_GEN3:-0} -ne 1 ]]; then
-    log_info "Tip: pair with --pcie-gen3 for full Hailo HAT throughput (optional)"
-  fi
+  local pkg
+  case $hardware in
+    hat)
+      pkg="hailo-all"
+      if _hailo_pkg_installed hailo-h10-all; then
+        log_error "hailo-h10-all is already installed; it cannot co-exist with hailo-all"
+        log_error "Remove the conflicting package manually, then re-run --hailo-hardware hat"
+        return 1
+      fi
+      ;;
+    hat2)
+      pkg="hailo-h10-all"
+      if _hailo_pkg_installed hailo-all; then
+        log_error "hailo-all is already installed; it cannot co-exist with hailo-h10-all"
+        log_error "Remove the conflicting package manually, then re-run --hailo-hardware hat2"
+        return 1
+      fi
+      ;;
+    *)
+      log_error "Internal error: unknown Hailo hardware family '$hardware'"
+      return 1
+      ;;
+  esac
 
-  # Install the metapackage. Upstream occasionally ships it as a
-  # monolithic `hailo-all`; older Bookworm images only had the
-  # individual components. Try the metapackage first, fall back to
-  # the split list documented by Raspberry Pi.
-  if ensure_packages hailo-all; then
-    log_info "Installed hailo-all metapackage"
+  if ensure_packages dkms "$pkg"; then
+    log_info "Installed $pkg package family"
   else
-    log_info "hailo-all not available; falling back to split packages"
-    if ! ensure_packages hailort hailo-dkms python3-hailort hailo-tappas-core hailofw; then
-      log_warn "Failed to install the Hailo runtime packages"
+    if [[ $hardware == "hat" ]]; then
+      log_info "hailo-all not available; falling back to split Hailo packages"
+      if ! ensure_packages dkms hailort hailo-dkms python3-hailort hailo-tappas-core hailofw; then
+        log_warn "Failed to install the Hailo runtime packages"
+        return 1
+      fi
+    else
+      log_warn "Failed to install $pkg"
       return 1
     fi
   fi
@@ -99,10 +190,10 @@ run_hailo() {
     fi
   fi
 
-  log_info "Hailo driver stack installed. Next:"
+  log_info "Hailo driver stack installed. Reboot required."
+  log_info "Next:"
   log_info "  1. Reboot so the DKMS module loads against the running kernel."
   log_info "  2. Verify with 'hailortcli fw-control identify' (or ls /dev/hailo*)."
-  log_info "  3. Follow the Raspberry Pi and Hailo model setup guides."
-  write_json_field "$CONFIG_OPTIMISER_STATE" "integrations.hailo" "installed"
-  pi_mark_reboot_required hailo
+  write_json_field "$CONFIG_OPTIMISER_STATE" "integrations.hailo" "$hardware"
+  write_json_field "$CONFIG_OPTIMISER_STATE" "integrations.hailo_package" "$pkg"
 }
